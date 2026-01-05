@@ -48,7 +48,6 @@ Other facts:
 * **Why not libvirt?**
   I love QEMU. Libvirt feels like extra layers of XML to get to the command line of QEMU I actually want to run.
 
-
 ## TODO
 
 * [ ] Add support for more recent Windows 11 versions.
