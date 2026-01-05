@@ -25,7 +25,7 @@ $ ./start
 Other facts:
 
 * Username: `user`
-* Password: `user`
+* Password: `password`
 * Image size: 6.8 GB (you'll need more to build the image though).
 * Time to build the image: less than 30' on my machine.
 * This not for production use. It's for when you need to try something quickly on Windows and you don't want any noise. Just a clean (not updated), Windows installation.
@@ -51,12 +51,11 @@ Other facts:
 ## TODO
 
 * [ ] Add support for more recent Windows 11 versions.
-* [ ] Make the Flake configurable and nice.
 * [ ] Implement `./mount` using `qemu-nbd`.
+* [ ] Get rid of packer, we probably can do without at this point.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
 * [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
 * [ ] Figure out a way to test things.
-* [ ] Get rid of packer, we probably can do without at this point.
 * [ ] Add support for older Windows versions.
 
 ## Credits
