@@ -60,7 +60,10 @@
                 };
 
                 version = mkOption {
-                  type = types.enum [ "windows-11-23h2" ];
+                  type = types.enum [
+                    "windows-11-23h2"
+                    "windows-11-25h2"
+                  ];
                   example = "windows-11-23h2";
                   description = "The Windows version identifier (e.g., windows-11-23h2).";
                 };
@@ -164,13 +167,176 @@
 
                   buildPhase =
                     let
-                      isoUrls = {
+                      versions = {
                         "windows-11-23h2" = {
-                          url = "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/22631.2428.231001-0608.23H2_NI_RELEASE_SVC_REFRESH_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso";
-                          sha256 = "sha256-yNvJa2HQTIsB+vbOB5T98zllx7NQ6qPrHmaXAZkClFw=";
+                          useEFI = false;
+                          iso = pkgs.fetchurl {
+                            url = "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/22631.2428.231001-0608.23H2_NI_RELEASE_SVC_REFRESH_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso";
+                            sha256 = "sha256-yNvJa2HQTIsB+vbOB5T98zllx7NQ6qPrHmaXAZkClFw=";
+                          };
+                          packerBootSteps = "";
+                          imageName = "Windows 11 Enterprise Evaluation";
+                          diskConfiguration = ''
+                            <DiskConfiguration>
+                              <Disk wcm:action="add">
+                                <CreatePartitions>
+                                  <CreatePartition wcm:action="add">
+                                    <Order>1</Order>
+                                    <Type>Primary</Type>
+                                    <Extend>true</Extend>
+                                  </CreatePartition>
+                                </CreatePartitions>
+                                <ModifyPartitions>
+                                  <ModifyPartition wcm:action="add">
+                                    <Extend>false</Extend>
+                                    <Format>NTFS</Format>
+                                    <Letter>C</Letter>
+                                    <Order>1</Order>
+                                    <PartitionID>1</PartitionID>
+                                    <Label>System</Label>
+                                  </ModifyPartition>
+                                </ModifyPartitions>
+                                <DiskID>0</DiskID>
+                                <WillWipeDisk>true</WillWipeDisk>
+                              </Disk>
+                              <WillShowUI>OnError</WillShowUI>
+                            </DiskConfiguration>
+                          '';
+                          installPartition = 1;
+                          productKey = ''
+                            <ProductKey>
+                              <!-- If you *do* set a key, ensure it's for the right platform: -->
+                              <!-- otherwise you will get the dreaded "No images are available" -->
+                              <!-- which actually means "No images are available for this ProductKey! -->
+                              <!-- <Key>SET_KEY_HERE</Key> -->
+                            </ProductKey>
+                          '';
+                        };
+                        "windows-11-25h2" = {
+                          useEFI = true;
+                          iso =
+                            let
+                              hash = "sha256-uq62yQ3VFkgVS2TEDJ4MFNk6Qn9hGhu0nIB3+i/3M2Q=";
+                              fileName = "Win11_25H2_EnglishInternational_x64.iso";
+                            in
+                            pkgs.stdenv.mkDerivation {
+                              name = fileName;
+                              src = ./.;
+
+                              outputHashMode = "recursive";
+                              outputHashAlgo = "sha256";
+                              outputHash = hash;
+
+                              buildPhase = ''
+                                export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+                                ${pkgs.quickemu}/bin/quickget windows 11
+                                if test -e windows-11/${fileName}; then
+                                  mv windows-11/${fileName} .
+                                else
+                                  echo "quickget failed, downloading from archive.org." > /dev/stderr
+                                  echo "This will be slow due to archive.org's bandwidth limits." > /dev/stderr
+                                  echo "Alternatively, you can download the file manually from the browser and then do:" > /dev/stderr
+                                  echo "" > /dev/stderr
+                                  echo "    nix-store --add-fixed sha256 ${fileName}" > /dev/stderr
+                                  echo "" > /dev/stderr
+
+                                  ${pkgs.curl}/bin/curl -L 'https://archive.org/download/win-11-25-h-2-english-international-x-64/${fileName}' > ${fileName}
+                                fi
+                              '';
+
+                              installPhase = ''
+                                mv ${fileName} "$out"
+                              '';
+
+                              fixupPhase = "";
+                            };
+                          packerBootSteps = ''
+                            boot_steps = [
+                              ["<enter>", "Boot into CD"],
+                              # Unfortunately, for some reason, specifying the language and keyboard layout does not work with Winodws 11 25H2.
+                              # This is a hack to accept the language proposed by the setup.
+                              # If we want to have a more reliable alternative than using a timeout, we can do the same in e:\windowsPE.bat
+                              # using AutoHotkey or a similar tool.
+                              ["<wait30><leftAltOn>n<leftAltOff>", "Accept language and locale"],
+                              ["<wait1><leftAltOn>n<leftAltOff>", "Accept keyboard layout"],
+                            ]
+                          '';
+                          imageName = "Windows 11 Pro";
+                          diskConfiguration = ''
+                            <DiskConfiguration>
+                              <Disk wcm:action="add">
+                                <DiskID>0</DiskID>
+                                <WillWipeDisk>true</WillWipeDisk>
+                                <CreatePartitions>
+                                  <!-- Windows RE Tools partition -->
+                                  <CreatePartition wcm:action="add">
+                                    <Order>1</Order>
+                                    <Type>Primary</Type>
+                                    <Size>256</Size>
+                                  </CreatePartition>
+                                  <!-- System partition (ESP) -->
+                                  <CreatePartition wcm:action="add">
+                                    <Order>2</Order>
+                                    <Type>EFI</Type>
+                                    <Size>128</Size>
+                                  </CreatePartition>
+                                  <!-- Microsoft reserved partition (MSR) -->
+                                  <CreatePartition wcm:action="add">
+                                    <Order>3</Order>
+                                    <Type>MSR</Type>
+                                    <Size>128</Size>
+                                  </CreatePartition>
+                                  <!-- Windows partition -->
+                                  <CreatePartition wcm:action="add">
+                                    <Order>4</Order>
+                                    <Type>Primary</Type>
+                                    <Extend>true</Extend>
+                                  </CreatePartition>
+                                </CreatePartitions>
+                                <ModifyPartitions>
+                                  <!-- Windows RE Tools partition -->
+                                  <ModifyPartition wcm:action="add">
+                                    <Order>1</Order>
+                                    <PartitionID>1</PartitionID>
+                                    <Label>WINRE</Label>
+                                    <Format>NTFS</Format>
+                                    <TypeID>DE94BBA4-06D1-4D40-A16A-BFD50179D6AC</TypeID>
+                                  </ModifyPartition>
+                                  <!-- System partition (ESP) -->
+                                  <ModifyPartition wcm:action="add">
+                                    <Order>2</Order>
+                                    <PartitionID>2</PartitionID>
+                                    <Label>System</Label>
+                                    <Format>FAT32</Format>
+                                  </ModifyPartition>
+                                  <!-- MSR partition does not need to be modified -->
+                                  <ModifyPartition wcm:action="add">
+                                    <Order>3</Order>
+                                    <PartitionID>3</PartitionID>
+                                  </ModifyPartition>
+                                  <!-- Windows partition -->
+                                    <ModifyPartition wcm:action="add">
+                                    <Order>4</Order>
+                                    <PartitionID>4</PartitionID>
+                                    <Label>Windows</Label>
+                                    <Letter>C</Letter>
+                                    <Format>NTFS</Format>
+                                  </ModifyPartition>
+                                </ModifyPartitions>
+                              </Disk>
+                            </DiskConfiguration>
+                          '';
+                          installPartition = 4;
+                          productKey = ''
+                            <ProductKey>
+                              <Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key>
+                              <WillShowUI>Never</WillShowUI>
+                            </ProductKey>
+                          '';
                         };
                       };
-                      isoPath = pkgs.fetchurl isoUrls."${version}";
+                      configuration = versions."${version}";
+                      isoPath = configuration.iso;
                       packerConfiguration = pkgs.writeTextFile {
                         name = "windows.pkr.hcl";
                         text = ''
@@ -186,7 +352,6 @@
                           source "qemu" "windows" {
                             communicator = "none"
 
-                            accelerator = "kvm"
                             cpus = "${builtins.toString cpus}"
 
                             disk_size = "${builtins.toString diskSize}"
@@ -208,6 +373,8 @@
                             vnc_port_min = 5900
                             vnc_port_max = 5900
 
+                            ${configuration.packerBootSteps}
+
                             qemu_img_args {
                               create = ["-o", "compat=1.1"]
                               convert = ["-o", "compat=1.1"]
@@ -215,14 +382,20 @@
                             }
 
                             qemuargs = [
-                              ["-drive", "file=output/packer-windows,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"],
-                              ["-drive", "media=cdrom,index=0,file=${isoPath}"],
-                              ["-drive", "media=cdrom,index=2,file=unattended.iso"],
-                              ["-net", "none"],
-                              ["-name", "qemu-windows-install,process=qemu-windows-install"]
+                              ["-net", "none"]
+                              , ["-cpu", "host"]
+                              , ["-drive", "file=output/packer-windows,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"]
+                              , ["-drive", "media=cdrom,index=0,file=${isoPath}"]
+                              , ["-drive", "media=cdrom,index=2,file=unattended.iso"]
+                              , ["-name", "qemu-windows-install,process=qemu-windows-install"]
+                              ${pkgs.lib.optionalString configuration.useEFI ''
+                                , ["-drive", "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"]
+                                , ["-drive", "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"]
+                                , ["-machine", "q35,accel=kvm"]
+                              ''}
                             ]
 
-                            boot_wait = "20s"
+                            boot_wait = "0.1s"
                             shutdown_timeout = "30m"
                           }
 
@@ -438,53 +611,25 @@
                                     <Path>cmd /c e:\passes\windowsPE.bat</Path>
                                   </RunSynchronousCommand>
                                 </RunSynchronous>
-                                <DiskConfiguration>
-                                  <Disk wcm:action="add">
-                                    <CreatePartitions>
-                                      <CreatePartition wcm:action="add">
-                                        <Order>1</Order>
-                                        <Type>Primary</Type>
-                                        <Extend>true</Extend>
-                                      </CreatePartition>
-                                    </CreatePartitions>
-                                    <ModifyPartitions>
-                                      <ModifyPartition wcm:action="add">
-                                        <Extend>false</Extend>
-                                        <Format>NTFS</Format>
-                                        <Letter>C</Letter>
-                                        <Order>1</Order>
-                                        <PartitionID>1</PartitionID>
-                                        <Label>System</Label>
-                                      </ModifyPartition>
-                                    </ModifyPartitions>
-                                    <DiskID>0</DiskID>
-                                    <WillWipeDisk>true</WillWipeDisk>
-                                  </Disk>
-                                  <WillShowUI>OnError</WillShowUI>
-                                </DiskConfiguration>
+                                ${configuration.diskConfiguration}
                                 <UserData>
                                   <AcceptEula>true</AcceptEula>
                                   <FullName>${username}</FullName>
                                   <Organization>Organization</Organization>
-                                  <ProductKey>
-                                    <!-- If you *do* set a key, ensure it's for the right platform: -->
-                                    <!-- otherwise you will get the dreaded "No images are available" -->
-                                    <!-- which actually means "No images are available for this ProductKey! -->
-                                    <!-- <Key>SET_KEY_HERE</Key> -->
-                                  </ProductKey>
+                                  ${configuration.productKey}
                                 </UserData>
                                 <ImageInstall>
                                   <OSImage>
                                     <InstallTo>
                                       <DiskID>0</DiskID>
-                                      <PartitionID>1</PartitionID>
+                                      <PartitionID>${builtins.toString configuration.installPartition}</PartitionID>
                                     </InstallTo>
                                     <WillShowUI>OnError</WillShowUI>
                                     <InstallToAvailablePartition>false</InstallToAvailablePartition>
                                     <InstallFrom>
                                       <MetaData wcm:action="add">
                                         <Key>/IMAGE/NAME</Key>
-                                        <Value>Windows 11 Enterprise Evaluation</Value>
+                                        <Value>${configuration.imageName}</Value>
                                       </MetaData>
                                     </InstallFrom>
                                   </OSImage>
@@ -498,9 +643,32 @@
                                          publicKeyToken="31bf3856ad364e35"
                                          versionScope="nonSxS">
                                 <DriverPaths>
-                                  <PathAndCredentials wcm:action="add"
-                                                      wcm:keyValue="1">
-                                    <Path>e:\drivers</Path>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="1">
+                                    <Path>e:\drivers\fwcfg\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="2">
+                                    <Path>e:\drivers\vioinput\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="3">
+                                    <Path>e:\drivers\vioscsi\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="4">
+                                    <Path>e:\drivers\viostor\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="5">
+                                    <Path>e:\drivers\vioserial\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="7">
+                                    <Path>e:\drivers\viorng\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="8">
+                                    <Path>e:\drivers\NetKVM\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="9">
+                                    <Path>e:\drivers\viofs\w11\amd64</Path>
+                                  </PathAndCredentials>
+                                  <PathAndCredentials wcm:action="add" wcm:keyValue="10">
+                                    <Path>e:\drivers\Balloon\w11\amd64</Path>
                                   </PathAndCredentials>
                                 </DriverPaths>
                               </component>
@@ -794,13 +962,18 @@
 
                       ${pkgs.cdrtools}/bin/mkisofs -quiet -J -o "unattended.iso" "unattended/"
 
+                      ${pkgs.lib.optionalString configuration.useEFI ''
+                        cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd .
+                        chmod u+w OVMF_VARS.fd
+                      ''}
+
                       ${pkgs.packer}/bin/packer build ${packerConfiguration}
 
                       mkdir -p output/share/windows-vm
 
                       cat > output/share/windows-vm/windows.conf <<EOF
                       guest_os="windows"
-                      boot="legacy"
+                      boot="${if configuration.useEFI then "efi" else "legacy"}"
                       disk_img="image.qcow2"
                       tpm="off"
                       secureboot="off"
@@ -835,6 +1008,8 @@
                     mkdir -p "$out"
                     mv output/* "$out/"
                   '';
+
+                  fixupPhase = "";
                 };
             };
           in
@@ -866,10 +1041,18 @@
                 cp -ar .config/packer "$out"
               '';
             };
-            packages.default = mkWindowsImage {
+
+            packages.windows11-23h2 = mkWindowsImage {
               name = "windows-11-23h2";
               version = "windows-11-23h2";
             };
+
+            packages.windows11-25h2 = mkWindowsImage {
+              name = "windows-11-25h2";
+              version = "windows-11-25h2";
+            };
+
+            packages.default = self.packages.${pkgs.system}.windows11-25h2;
           };
       }
     );

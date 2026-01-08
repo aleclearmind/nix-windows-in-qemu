@@ -3,7 +3,14 @@
 This nix flake cooks Windows images that can be run with QEMU.
 It aims to produce images that are ready to use, without bloat, Windows Updates and Windows Defender.
 
-Right now this flake builds Windows 11 23H2 (Enterprise Evaluation). The goal is to support many versions of Windows, including historical ones.
+Right now this flake builds the following Windows versions:
+
+| Version                    | No Updates | No Defender | Size | Time | Boot |
+| -------------------------- | ---------- | ----------- | ---- | ---- | ---- |
+| Windows 11 25H2 Pro        | ✅         | ❌          | 8.1G | ??   | EFI  |
+| Windows 11 23H2 Enterprise | ✅         | ✅          | 6.8G | 21'  | MBR  |
+
+The goal is to support many versions of Windows, including historical ones.
 
 Being the build deterministic, whatever is produced here, will be reproducible until the end of time (or until Microsoft stops distributing the ISOs).
 
@@ -26,8 +33,6 @@ Other facts:
 
 * Username: `user`
 * Password: `password`
-* Image size: 6.8 GB (you'll need more to build the image though).
-* Time to build the image: less than 30' on my machine.
 * This not for production use. It's for when you need to try something quickly on Windows and you don't want any noise. Just a clean (not updated), Windows installation.
 
 ## Features
@@ -43,6 +48,13 @@ Other facts:
 
 ## FAQ
 
+* **How can I watch the installation process?**
+  The build runs in QEMU, which exposes a VNC service on port 5900.
+  To access it, you need to enter the network namespace of the nix builder process.
+  ```
+  sudo nsenter --target $(pgrep -f qemu-windows-install) --net sudo --user $USER vncviewer -Shared 127.0.0.1:5900
+  ```
+  `vncviewer` is part of the `tigervnc` package.
 * **Why not VirtualBox?**
   I love QEMU, once you invoke it with the right incantations, it's the best. Thanks to [`quickemu`](https://github.com/quickemu-project/quickemu), the incantations are not that hard nowadays. Also, apparently the VirtualBox kernel driver is (used to be?) [quite bad](https://lkml.org/lkml/2011/10/6/317).
 * **Why not libvirt?**
@@ -50,12 +62,14 @@ Other facts:
 
 ## TODO
 
-* [ ] Add support for more recent Windows 11 versions.
 * [ ] Implement `./mount` using `qemu-nbd`.
+* [ ] Implement `nix run`.
 * [ ] Get rid of packer, we probably can do without at this point.
+* [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
 * [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
 * [ ] Figure out a way to test things.
+* [ ] Improve configurability of the software being preinstalled.
 * [ ] Add support for older Windows versions.
 
 ## Credits
