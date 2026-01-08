@@ -406,6 +406,10 @@
                             cd $desktop
                             cd .\Win11Debloat*
                             cd .\Win11Debloat*
+                            # Do not create a restore point
+                            $filePath = "Win11Debloat.ps1"
+                            $lines = Get-Content $filePath
+                            $lines | Where-Object { $_ -notmatch "Checkpoint-Computer" } | Set-Content $filePath
                             .\Win11Debloat.ps1 -RunDefaults -Silent
 
                             cd $desktop
