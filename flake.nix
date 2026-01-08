@@ -205,6 +205,9 @@
 
                             output_directory = "output"
 
+                            vnc_port_min = 5900
+                            vnc_port_max = 5900
+
                             qemu_img_args {
                               create = ["-o", "compat=1.1"]
                               convert = ["-o", "compat=1.1"]
