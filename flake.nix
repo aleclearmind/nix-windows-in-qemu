@@ -244,7 +244,11 @@
                                 else
                                   echo "quickget failed, downloading from archive.org." > /dev/stderr
                                   echo "This will be slow due to archive.org's bandwidth limits." > /dev/stderr
-                                  echo "Alternatively, you can download the file manually from the browser and then do:" > /dev/stderr
+                                  echo "Alternatively, you can download the file manually from the browser:" > /dev/stderr
+                                  echo "" > /dev/stderr
+                                  echo "    https://www.microsoft.com/en-us/software-download/windows11" > /dev/stderr
+                                  echo "" > /dev/stderr
+                                  echo "Then do:" > /dev/stderr
                                   echo "" > /dev/stderr
                                   echo "    nix-store --add-fixed sha256 ${fileName}" > /dev/stderr
                                   echo "" > /dev/stderr
