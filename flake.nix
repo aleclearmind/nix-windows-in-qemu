@@ -211,6 +211,15 @@
                               <!-- <Key>SET_KEY_HERE</Key> -->
                             </ProductKey>
                           '';
+                          servicesToDisable = [
+                            "Sense"
+                            "WdBoot"
+                            "WdFilter"
+                            "WdNisDrv"
+                            "WdNisSvc"
+                            "WinDefend"
+                            "webthreatdefsvc"
+                          ];
                         };
                         "windows-11-25h2" = {
                           useEFI = true;
@@ -333,6 +342,15 @@
                               <WillShowUI>Never</WillShowUI>
                             </ProductKey>
                           '';
+                          servicesToDisable = [
+                            "Sense"
+                            "WdBoot"
+                            "WdFilter"
+                            "WdNisDrv"
+                            "WdNisSvc"
+                            "WinDefend"
+                            "webthreatdefsvc"
+                          ];
                         };
                       };
                       configuration = versions."${version}";
@@ -406,23 +424,86 @@
                       };
                       passes = {
                         "windowsPE.bat" = ''
+                          ${pkgs.lib.optionalString ((builtins.length configuration.servicesToDisable) > 0) ''
+                            cmd.exe /c "start /min cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs"
+                          ''}
+
                           rem Disable TPM check
                           reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1
                           rem Disable Secure Boot check
                           reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1
                         '';
-                        "specialize.bat" = pkgs.lib.optionalString disableWindowsDefender ''
-                          rem Disable Windows Defender
-                          reg add HKLM\SYSTEM\ControlSet001\Services\Sense /v Start /t REG_DWORD /d 4 /f
-                          reg add HKLM\SYSTEM\ControlSet001\Services\WdBoot /v Start /t REG_DWORD /d 4 /f
-                          reg add HKLM\SYSTEM\ControlSet001\Services\WdFilter /v Start /t REG_DWORD /d 4 /f
-                          reg add HKLM\SYSTEM\ControlSet001\Services\WdNisDrv /v Start /t REG_DWORD /d 4 /f
-                          reg add HKLM\SYSTEM\ControlSet001\Services\WdNisSvc /v Start /t REG_DWORD /d 4 /f
-                          reg add HKLM\SYSTEM\ControlSet001\Services\WinDefend /v Start /t REG_DWORD /d 4 /f
+                        # The following script spins indefinitely during the windowsPE phase looking for hives and tampering with them.
+                        # This is not super elegant, but this is the only phase in which these services (in particular, Windows Defender)
+                        # are not running yet and self-protecting themselves from being disabled.
+                        # In particular, Windows Defender is already running during the specialize phase.
+                        "windowsPE/disable-services.vbs" = ''
+                          WScript.Echo "Scanning for newly created SYSTEM registry hive file to disable services..."
 
-                          rem Disable Web Threat Defense Service
-                          reg add HKLM\SYSTEM\ControlSet001\Services\webthreatdefsvc /v Start /t REG_DWORD /d 4 /f
+                          Set fso = CreateObject("Scripting.FileSystemObject")
+
+                          Set existing = CreateObject("Scripting.Dictionary")
+
+                          Function Execute(command)
+                              WScript.Echo "Running command '" + command + "'"
+                              Set shell = CreateObject("WScript.Shell")
+                              Set exec = shell.Exec(command)
+                              Do While exec.Status = 0
+                                  WScript.Sleep 100
+                              Loop
+                              WScript.Echo exec.StdOut.ReadAll
+                               WScript.Echo exec.StdErr.ReadAll
+                              Execute = exec.ExitCode
+                          End Function
+
+                          Function FindHiveFiles()
+                              Set FindHiveFiles = CreateObject("Scripting.Dictionary")
+                              For Each drive In fso.Drives
+                                  If drive.IsReady And drive.DriveLetter <> "X" Then
+                                      For Each folder In Array("$Windows.~BT\NewOS\Windows", "Windows")
+                                          file = fso.BuildPath(fso.BuildPath(drive.RootFolder, folder), "System32\config\SYSTEM")
+                                          If fso.FileExists(file) And fso.FileExists(file + ".LOG1") And fso.FileExists(file + ".LOG2") Then
+                                              FindHiveFiles.Add file, Nothing
+                                          End If
+                                      Next
+                                  End If
+                              Next
+                          End Function
+
+                          For Each file In FindHiveFiles
+                              WScript.Echo "Will ignore file at '" + file + "' because it was already present when Windows Setup started."
+                              existing.Add file, Nothing
+                          Next
+
+                          Do
+                              For Each file In FindHiveFiles
+                                  If Not existing.Exists(file) Then
+                                      WScript.Echo "Mounting " + file
+                                      ret = 1
+                                      While ret > 0
+                                          WScript.Sleep 500
+                                          ret = Execute("reg.exe LOAD HKLM\mount """ + file + """")
+                                      Wend
+
+                                      For Each service In Array(${
+                                        "\"" + (builtins.concatStringsSep "\", \"" configuration.servicesToDisable) + "\""
+                                      })
+                                          WScript.Echo "Disabling " + service
+                                          ret = Execute("reg.exe ADD HKLM\mount\ControlSet001\Services\" + service + " /v Start /t REG_DWORD /d 4 /f")
+                                      Next
+
+                                      WScript.Echo "Unmounting"
+                                      ret = Execute("reg.exe UNLOAD HKLM\mount")
+
+                                      WScript.Echo "All done! Closing in 5 seconds."
+                                      WScript.Sleep 5000
+                                      Exit Do
+                                  End If
+                                  WScript.Sleep 1000
+                              Next
+                          Loop
                         '';
+                        "specialize.bat" = "";
                         "oobeSystem.bat" = builtins.concatStringsSep "\n" [
                           ''
                             rem Set high performance mode
