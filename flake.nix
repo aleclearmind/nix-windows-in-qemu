@@ -270,7 +270,7 @@
                               # This is a hack to accept the language proposed by the setup.
                               # If we want to have a more reliable alternative than using a timeout, we can do the same in e:\windowsPE.bat
                               # using AutoHotkey or a similar tool.
-                              ["<wait30><leftAltOn>n<leftAltOff>", "Accept language and locale"],
+                              ["<wait60><leftAltOn>n<leftAltOff>", "Accept language and locale"],
                               ["<wait1><leftAltOn>n<leftAltOff>", "Accept keyboard layout"],
                             ]
                           '';
@@ -418,7 +418,7 @@
                             ]
 
                             boot_wait = "0.1s"
-                            shutdown_timeout = "30m"
+                            shutdown_timeout = "60m"
                           }
 
                           build {
