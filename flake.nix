@@ -232,7 +232,7 @@
                               name = fileName;
                               src = ./.;
 
-                              outputHashMode = "recursive";
+                              outputHashMode = "flat";
                               outputHashAlgo = "sha256";
                               outputHash = hash;
 
