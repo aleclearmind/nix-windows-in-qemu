@@ -24,7 +24,7 @@ $ mkdir test-vm
 $ cd test-vm
 $ ../result/bin/prepare-windows-vm
 $ ls windows-vm
-image.qcow2  start  stop  windows.conf
+image.qcow2 start stop mount windows.conf
 $ cd windows-vm
 $ ./start
 ```
@@ -46,6 +46,7 @@ Other facts:
 * Some useful software is preinstalled: the [SysinternalsSuite](https://learn.microsoft.com/en-us/sysinternals/), Firefox, Google Chrome, [Notepad++](https://github.com/notepad-plus-plus/notepad-plus-plus), [Git for Windows](https://github.com/git-for-windows/git), [Chocolatey](https://github.com/chocolatey/choco), [Everything](https://www.voidtools.com/), [SystemInformer](https://systeminformer.sourceforge.io/) (was: Process Hacker), [Dependency Walker](https://www.dependencywalker.com), [Dependencies](https://github.com/lucasg/Dependencies).
 * Free space is zeroed out to get a smaller final image.
 * Produce lossless video of the installation process.
+* While the VM is off, you can mount its partitions on the host system using the `./mount` script.
 
 ## FAQ
 
@@ -60,7 +61,6 @@ Other facts:
 
 ## TODO
 
-* [ ] Implement `./mount` using `qemu-nbd`.
 * [ ] Implement `nix run`.
 * [ ] Get rid of packer, we probably can do without at this point.
 * [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.

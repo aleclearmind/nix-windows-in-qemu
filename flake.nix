@@ -1110,6 +1110,8 @@
                         ${pkgs.quickemu}/bin/quickemu --vm windows.conf --kill
                       ''} output/share/windows-vm/stop
 
+                      cp -a scripts/mount output/share/windows-vm/mount
+
                       mv output/packer-windows output/share/windows-vm/image.qcow2
 
                       mkdir -p output/bin
