@@ -1,0 +1,7 @@
+#!/bin/sh
+
+QEMU_PID=$(pgrep -f qemu-windows-install)
+sudo \
+     nsenter --target "$QEMU_PID" --net \
+     sudo -u $USER \
+     vncviewer -Shared 127.0.0.1:5900

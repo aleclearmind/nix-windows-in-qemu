@@ -51,10 +51,7 @@ Other facts:
 * **How can I watch the installation process?**
   The build runs in QEMU, which exposes a VNC service on port 5900.
   To access it, you need to enter the network namespace of the nix builder process.
-  ```
-  sudo nsenter --target $(pgrep -f qemu-windows-install) --net sudo --user $USER vncviewer -Shared 127.0.0.1:5900
-  ```
-  `vncviewer` is part of the `tigervnc` package.
+  Use `./connect-to-vnc` to do that.
 * **Why not VirtualBox?**
   I love QEMU, once you invoke it with the right incantations, it's the best. Thanks to [`quickemu`](https://github.com/quickemu-project/quickemu), the incantations are not that hard nowadays. Also, apparently the VirtualBox kernel driver is (used to be?) [quite bad](https://lkml.org/lkml/2011/10/6/317).
 * **Why not libvirt?**
