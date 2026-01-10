@@ -5,10 +5,10 @@ It aims to produce images that are ready to use, without bloat, Windows Updates 
 
 Right now this flake builds the following Windows versions:
 
-| Version                    | No Updates | No Defender | Size | Time | Boot |
-| -------------------------- | ---------- | ----------- | ---- | ---- | ---- |
-| Windows 11 25H2 Pro        | ✅         | ❌          | 8.1G | ??   | EFI  |
-| Windows 11 23H2 Enterprise | ✅         | ✅          | 6.8G | 21'  | MBR  |
+| Version                    | Package           | Size | Time | Boot |
+| -------------------------- | ----------------- | ---- | ---- | ---- |
+| Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31'  | EFI  |
+| Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21'  | MBR  |
 
 The goal is to support many versions of Windows, including historical ones.
 
@@ -71,6 +71,9 @@ Other facts:
 * [ ] Figure out a way to test things.
 * [ ] Improve configurability of the software being preinstalled.
 * [ ] Add support for older Windows versions.
+* [ ] Record installation video over vnc
+* [ ] Disable firewall
+* [ ] Install SSH
 
 ## Credits
 
