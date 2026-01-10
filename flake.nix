@@ -1123,17 +1123,17 @@
               '';
             };
 
-            packages.windows11-23h2 = mkWindowsImage {
+            packages.windows-11-23h2 = mkWindowsImage {
               name = "windows-11-23h2";
               version = "windows-11-23h2";
             };
 
-            packages.windows11-25h2 = mkWindowsImage {
+            packages.windows-11-25h2 = mkWindowsImage {
               name = "windows-11-25h2";
               version = "windows-11-25h2";
             };
 
-            packages.default = self.packages.${pkgs.system}.windows11-25h2;
+            packages.default = self.packages.${pkgs.system}.windows-11-25h2;
           };
       }
     );
