@@ -45,6 +45,7 @@ Other facts:
 * Various debloating using [Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat).
 * Some useful software is preinstalled: the [SysinternalsSuite](https://learn.microsoft.com/en-us/sysinternals/), Firefox, Google Chrome, [Notepad++](https://github.com/notepad-plus-plus/notepad-plus-plus), [Git for Windows](https://github.com/git-for-windows/git), [Chocolatey](https://github.com/chocolatey/choco), [Everything](https://www.voidtools.com/), [SystemInformer](https://systeminformer.sourceforge.io/) (was: Process Hacker), [Dependency Walker](https://www.dependencywalker.com), [Dependencies](https://github.com/lucasg/Dependencies).
 * Free space is zeroed out to get a smaller final image.
+* Produce lossless video of the installation process.
 
 ## FAQ
 
@@ -68,7 +69,6 @@ Other facts:
 * [ ] Figure out a way to test things.
 * [ ] Improve configurability of the software being preinstalled.
 * [ ] Add support for older Windows versions.
-* [ ] Record installation video over vnc
 * [ ] Disable firewall
 * [ ] Install SSH
 

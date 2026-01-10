@@ -137,6 +137,14 @@
                   example = "password";
                   description = "The password for the local administrator account.";
                 };
+
+                recordInstallation = mkOption {
+                  type = types.bool;
+                  default = true;
+                  example = true;
+                  description = "If true, produces share/windows-vm/recording.mkv, i.e., a video of the installation process recorded via VNC.";
+                };
+
               };
               implementation =
                 {
@@ -153,6 +161,7 @@
                   computerName,
                   username,
                   password,
+                  recordInstallation,
                   ...
                 }:
                 pkgs.stdenv.mkDerivation {
@@ -1052,9 +1061,32 @@
                         chmod u+w OVMF_VARS.fd
                       ''}
 
+                      ${pkgs.lib.optionalString recordInstallation (
+                        let
+                          vncrec = "${pkgs.xvfb-run}/bin/xvfb-run ${pkgs.vncrec}/bin/vncrec";
+                          ffmpeg = "${pkgs.ffmpeg}/bin/ffmpeg";
+                        in
+                        ''
+                          (
+                            # Wait for QEMU to start
+                            sleep 3
+
+                            # Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
+                            # NOTE: vncrec needs to run with an X instance, so we use a virtual one.
+                            ${vncrec} -shared 127.0.0.1:5900 -record /dev/stdout | \
+                              ${vncrec} -movie /dev/stdin | \
+                              ${ffmpeg} -i - -c:v libaom-av1 -crf 0 -b:v 0 -pix_fmt yuv420p recording.mkv
+                          ) &
+                        ''
+                      )}
+
                       ${pkgs.packer}/bin/packer build ${packerConfiguration}
 
                       mkdir -p output/share/windows-vm
+
+                      ${pkgs.lib.optionalString recordInstallation ''
+                        mv recording.mkv output/share/windows-vm
+                      ''}
 
                       cat > output/share/windows-vm/windows.conf <<EOF
                       guest_os="windows"
