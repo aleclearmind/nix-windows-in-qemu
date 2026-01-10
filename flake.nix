@@ -261,7 +261,7 @@
                                 mv ${fileName} "$out"
                               '';
 
-                              fixupPhase = "";
+                              dontFixup = true;
                             };
                           packerBootSteps = ''
                             boot_steps = [
@@ -1094,7 +1094,7 @@
                     mv output/* "$out/"
                   '';
 
-                  fixupPhase = "";
+                  dontFixup = true;
                 };
             };
           in
