@@ -53,6 +53,11 @@
               version = "windows-11-25h2";
             };
 
+            packages."dos-6.22" = mkWindowsImage {
+              name = "dos-6.22";
+              version = "dos-6.22";
+            };
+
             packages.default = self.packages.${pkgs.system}.windows-11-25h2;
           };
       }

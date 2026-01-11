@@ -7,8 +7,9 @@ Right now this flake builds the following Windows versions:
 
 | Version                    | Package           | Size | Time | Boot |
 | -------------------------- | ----------------- | ---- | ---- | ---- |
-| Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31'  | EFI  |
-| Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21'  | MBR  |
+| Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31m  | EFI  |
+| Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21m  | MBR  |
+| MS-DOS 6.22                | `dos-6.22`        | 3.9M | 44s  | MBR  |
 
 The goal is to support many versions of Windows, including historical ones.
 
@@ -58,6 +59,11 @@ Other facts:
   I love QEMU, once you invoke it with the right incantations, it's the best. Thanks to [`quickemu`](https://github.com/quickemu-project/quickemu), the incantations are not that hard nowadays. Also, apparently the VirtualBox kernel driver is (used to be?) [quite bad](https://lkml.org/lkml/2011/10/6/317).
 * **Why not libvirt?**
   I love QEMU. Libvirt feels like extra layers of XML to get to the command line of QEMU I actually want to run.
+* **How do you pilot the installation?**
+  For recent systems, you can do 99% of things via the [answer file `autounattend.xml`](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/update-windows-settings-and-scripts-create-your-own-answer-file-sxs).
+  Due to some limitations, sometimes it's still necessary to simulate key inputs, using [Packer's `boot_steps`](https://developer.hashicorp.com/packer/integrations/hashicorp/qemu/latest/components/builder/qemu#boot-configuration) or `vncdo key`.
+  For older systems (e.g., DOS), the installation is piloted via VNC key presses. However, almost no `sleep`s  are used: screenshots are taken via VNC (`vncdo snapshot`), OCR is performed on the screenshot with [Tesseract](https://github.com/tesseract-ocr/tesseract) and then we keep waiting until a certain text pops up.
+  `sleep`s are bad for reproducibility.
 
 ## TODO
 
@@ -71,6 +77,7 @@ Other facts:
 * [ ] Add support for older Windows versions.
 * [ ] Disable firewall
 * [ ] Install SSH
+* [ ] Make images actually reproducible, byte-by-byte.
 
 ## Credits
 
@@ -79,3 +86,4 @@ The following projects have been useful:
 * [`proactivelabs/packer-windows`](https://github.com/proactivelabs/packer-windows/)
 * [`quickemu-project/quickemu`](https://github.com/quickemu-project/quickemu)
 * [Christoph Schneegans's `autounattend.xml` generator](https://schneegans.de/windows/unattend-generator/)
+* [`computernewb.com`'s Windows QEMU installation guides](https://computernewb.com/wiki/QEMU/Guests/Windows)
