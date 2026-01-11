@@ -28,6 +28,7 @@ typeSafeFunction {
       type = types.enum [
         "windows-11-23h2"
         "windows-11-25h2"
+        "windows-3.11"
         "dos-6.22"
       ];
       example = "windows-11-23h2";
@@ -125,6 +126,7 @@ typeSafeFunction {
         ./systems/options.nix
         ./systems/windows-11-25h2.nix
         ./systems/windows-11-23h2.nix
+        ./systems/windows-3.11.nix
         ./systems/dos-6.22.nix
         ./implementation.nix
       ];

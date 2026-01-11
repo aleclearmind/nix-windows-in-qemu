@@ -58,6 +58,12 @@
               version = "dos-6.22";
             };
 
+            packages."windows-3.11" = mkWindowsImage {
+              name = "windows-3.11";
+              version = "windows-3.11";
+              recordInstallation = false;
+            };
+
             packages.default = self.packages.${pkgs.system}.windows-11-25h2;
           };
       }
