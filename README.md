@@ -8,6 +8,7 @@ Right now this flake builds the following Windows versions:
 | Version                    | Package           | Size | Time | Boot |
 | -------------------------- | ----------------- | ---- | ---- | ---- |
 | Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31m  | EFI  |
+| Windows 11 24H2 Pro        | `windows-11-24h2` | 6.5G | 25m  | EFI  |
 | Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21m  | MBR  |
 | Windows 3.11               | `windows-3.11`    | 12M  | 150s | MBR  |
 | MS-DOS 6.22                | `dos-6.22`        | 3.9M | 44s  | MBR  |
@@ -62,7 +63,7 @@ Other facts:
   I love QEMU. Libvirt feels like extra layers of XML to get to the command line of QEMU I actually want to run.
 * **How do you pilot the installation?**
   For recent systems, you can do 99% of things via the [answer file `autounattend.xml`](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/update-windows-settings-and-scripts-create-your-own-answer-file-sxs).
-  Due to some limitations, sometimes it's still necessary to simulate key inputs, using [Packer's `boot_steps`](https://developer.hashicorp.com/packer/integrations/hashicorp/qemu/latest/components/builder/qemu#boot-configuration) or `vncdo key`.
+  Due to some limitations, sometimes it's still necessary to simulate key inputs, using `vncdo key`.
   For older systems (e.g., Windows 3.11), the installation is piloted via VNC key presses. However, almost no `sleep`s  are used: screenshots are taken via VNC (`vncdo snapshot`), OCR is performed on the screenshot with [Tesseract](https://github.com/tesseract-ocr/tesseract) and then we keep waiting until a certain text pops up.
   `sleep`s are bad for reproducibility.
 

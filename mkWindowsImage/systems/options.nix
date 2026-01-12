@@ -60,12 +60,6 @@ with pkgs.lib;
               description = "Path to the initial floppy disk image for installation.";
             };
 
-            packerBootSteps = mkOption {
-              type = types.str;
-              default = "";
-              description = "Packer's boot_steps = [ ... ].";
-            };
-
             commands = mkOption {
               default = [ ];
               description = "A list of commands to pilot installation.";

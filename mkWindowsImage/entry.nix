@@ -26,8 +26,9 @@ typeSafeFunction {
 
     version = mkOption {
       type = types.enum [
-        "windows-11-23h2"
         "windows-11-25h2"
+        "windows-11-24h2"
+        "windows-11-23h2"
         "windows-3.11"
         "dos-6.22"
       ];
@@ -121,10 +122,11 @@ typeSafeFunction {
           _module.args = {
             pkgs = pkgs;
             userConfiguration = userConfiguration;
-          };
+          }
+          // (import ./lib.nix { inherit pkgs; });
         }
         ./systems/options.nix
-        ./systems/windows-11-25h2.nix
+        ./systems/windows-11-24h2.nix
         ./systems/windows-11-23h2.nix
         ./systems/windows-3.11.nix
         ./systems/dos-6.22.nix
