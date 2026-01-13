@@ -5,6 +5,7 @@
   ...
 }:
 let
+  lib = pkgs.lib;
   windowsImage =
     {
       name,
@@ -30,15 +31,28 @@ let
 
       dontUnpack = true;
 
-      buildInputs = [
-        pkgs.qemu
-      ];
+      nativeBuildInputs =
+        with pkgs;
+        [
+          qemu
+          p7zip
+          openssl
+          socat
+          vncdo
+          tesseract
+          packer
+          cdrtools
+        ]
+        ++ (lib.optionals recordInstallation [
+          ffmpeg
+          xvfb-run
+          vncrec
+        ]);
 
       buildPhase =
         let
           configuration = config.systems."${version}";
-          min =
-            value: upperBound: if (builtins.isNull upperBound) then value else (pkgs.lib.min value upperBound);
+          min = value: upperBound: if (builtins.isNull upperBound) then value else (lib.min value upperBound);
           packerConfiguration = pkgs.writeTextFile {
             name = "windows.pkr.hcl";
             text = ''
@@ -75,7 +89,7 @@ let
                 vnc_port_min = 5900
                 vnc_port_max = 5900
 
-                qemu_binary = "${pkgs.qemu}/bin/qemu-system-${configuration.qemuArchitecture}"
+                qemu_binary = "qemu-system-${configuration.qemuArchitecture}"
 
                 qemu_img_args {
                   create = ["-o", "compat=1.1"]
@@ -89,15 +103,15 @@ let
                   , ["-cpu", "${configuration.cpu}"]
                   , ["-monitor", "unix:qemu-monitor.socket,server,nowait"]
                   , ["-drive", "file=output/packer-windows,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"]
-                  ${pkgs.lib.optionalString (!(builtins.isNull configuration.iso)) ''
+                  ${lib.optionalString (!(builtins.isNull configuration.iso)) ''
                     , ["-drive", "media=cdrom,index=0,file=${configuration.iso}"]
                   ''}
-                  ${pkgs.lib.optionalString (!(builtins.isNull configuration.floppy)) ''
+                  ${lib.optionalString (!(builtins.isNull configuration.floppy)) ''
                     , ["-drive", "format=raw,if=floppy,file=${configuration.floppy},readonly=on"]
                   ''}
                   , ["-drive", "media=cdrom,index=2,file=unattended.iso"]
                   , ["-name", "qemu-windows-install,process=qemu-windows-install"]
-                  ${pkgs.lib.optionalString configuration.useEFI ''
+                  ${lib.optionalString configuration.useEFI ''
                     , ["-drive", "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"]
                     , ["-drive", "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"]
                   ''}
@@ -114,7 +128,7 @@ let
           };
           passes = {
             "windowsPE.bat" = ''
-              ${pkgs.lib.optionalString ((builtins.length configuration.autounattendXml.servicesToDisable) > 0) ''
+              ${lib.optionalString ((builtins.length configuration.autounattendXml.servicesToDisable) > 0) ''
                 cmd.exe /c "start /min cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs"
               ''}
 
@@ -268,7 +282,7 @@ let
                         %windir%\microsoft.net\framework64\v4.0.30319\ngen.exe executequeueditems
                 )
               ''
-              (pkgs.lib.optionalString disableWindowsUpdates ''
+              (lib.optionalString disableWindowsUpdates ''
                 rem Disable Windows Updates by setting update server to 127.6.6.6
                 reg import e:\passes\oobeSystem\fake-windows-update-server.reg
                 gpupdate /force
@@ -281,7 +295,7 @@ let
                 powershell -ExecutionPolicy Bypass -File e:\passes\oobeSystem\oobeSystem.ps1
 
               ''
-              (pkgs.lib.optionalString zeroOutFreeSpace ''
+              (lib.optionalString zeroOutFreeSpace ''
                 rem Zero out free space to better compress the final image
                 rem Make sure this is the last significant thing we do
                 cd %USERPROFILE%\Desktop
@@ -344,7 +358,7 @@ let
                 Extract-ZipToDesktop -zipFilePath "e:\extra\Dependencies_x64_Release.zip"
 
               ''
-              (pkgs.lib.optionalString debloat ''
+              (lib.optionalString debloat ''
                 Extract-ZipToDesktop -zipFilePath "e:\extra\Win11Debloat.zip"
                 $desktop = [System.Environment]::GetFolderPath('Desktop')
                 cd $desktop
@@ -651,9 +665,7 @@ let
                 "cp -a ${fetched} ${entry.name}"
               ) list;
             in
-            pkgs.lib.concatStringsSep "\n" fetchUrls;
-          openssl = "${pkgs.openssl}/bin/openssl";
-          p7zip = "${pkgs.p7zip}/bin/7z";
+            lib.concatStringsSep "\n" fetchUrls;
           createFiles = (
             files:
             let
@@ -667,12 +679,12 @@ let
                   text = content;
                 };
 
-              cps = pkgs.lib.concatStringsSep "\n" (
-                pkgs.lib.mapAttrsToList (path: content: "cp ${fileDeriv path content} ${path}") files
+              cps = lib.concatStringsSep "\n" (
+                lib.mapAttrsToList (path: content: "cp ${fileDeriv path content} ${path}") files
               );
 
             in
-            pkgs.lib.strings.concatStringsSep "\n" [
+            lib.strings.concatStringsSep "\n" [
               mkdirs
               cps
             ]
@@ -693,9 +705,9 @@ let
                 + (
                   let
                     qemuCommand = command: ''
-                      echo "${command}" | ${pkgs.socat}/bin/socat - unix-connect:qemu-monitor.socket >& /dev/null
+                      echo "${command}" | socat - unix-connect:qemu-monitor.socket >& /dev/null
                     '';
-                    vncDo = command: "${pkgs.vncdo}/bin/vncdo --server 127.0.0.1::5900 ${command} >& /dev/null";
+                    vncDo = command: "vncdo --server 127.0.0.1::5900 ${command} >& /dev/null";
                   in
                   (
                     if action.type == "sleep" then
@@ -723,7 +735,7 @@ let
                             while ! grep --quiet -i "${action.text}" image.txt >& /dev/null; do
                                 rm -f image.txt image.png
                                 if ${vncDo "capture image.png"}; then
-                                    ${pkgs.tesseract}/bin/tesseract image.png image
+                                    tesseract image.png image
                                     cat image.txt
                                 fi
                             done
@@ -738,7 +750,7 @@ let
             if (builtins.length commands) > 0 then
               ''
                 (
-                  ${pkgs.lib.concatStringsSep "\n" (builtins.map expandCommand commands)}
+                  ${lib.concatStringsSep "\n" (builtins.map expandCommand commands)}
                 ) &
               ''
             else
@@ -752,9 +764,11 @@ let
             outputHashAlgo = "sha256";
             outputHash = "sha256-z4PrpKCrn+1c10O5shDz0vv8xqA9bHQR093iIh0XbSM=";
 
+            nativeBuildInputs = [ pkgs.packer ];
+
             buildPhase = ''
               export HOME="$PWD"
-              ${pkgs.packer}/bin/packer plugins install github.com/hashicorp/qemu
+              packer plugins install github.com/hashicorp/qemu
             '';
 
             installPhase = ''
@@ -779,13 +793,13 @@ let
           # derivation. If it isn't, it will fail due to no internet
           # connection.
           cp -ar ${packerPlugins}/packer fake-home/.config
-          ${pkgs.packer}/bin/packer init ${packerConfiguration}
+          packer init ${packerConfiguration}
 
           # Prepare unattended.iso
           mkdir unattended
           pushd unattended > /dev/null
 
-          ${pkgs.lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+          ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
             cp -a ${autounattendXML} Autounattend.xml
             cat Autounattend.xml
           ''}
@@ -795,7 +809,7 @@ let
           ${copyUrls extraFiles}
           popd > /dev/null
 
-          ${pkgs.lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+          ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
             mkdir passes
             pushd passes > /dev/null
             ${createFiles passes}
@@ -807,17 +821,17 @@ let
           # scan e:\drivers
           mkdir drivers
           pushd drivers > /dev/null
-          ${p7zip} x ${virtioIsoPath} $(${p7zip} l ${virtioIsoPath}  | grep w11 | grep -i amd64 | grep -F D.... | awk '{ print $4 }')
+          7z x ${virtioIsoPath} $(7z l ${virtioIsoPath}  | grep w11 | grep -i amd64 | grep -F D.... | awk '{ print $4 }')
           popd > /dev/null
 
-          ${p7zip} x ${virtioIsoPath} guest-agent/qemu-ga-x86_64.msi
+          7z x ${virtioIsoPath} guest-agent/qemu-ga-x86_64.msi
           mv guest-agent/qemu-ga-x86_64.msi extra/
           rmdir guest-agent
 
           mkdir spice-drivers
           pushd spice-drivers > /dev/null
-          ${p7zip} x ../extra/spice-guest-tools.exe drivers/vioserial/w10/amd64/vioser.cat
-          ${openssl} pkcs7 -inform der -in drivers/vioserial/w10/amd64/vioser.cat -print_certs | grep Red -A1000 | grep -m1 'END CERTIFICATE' -B 10000 | ${openssl} x509 -inform pem -outform der > ../drivers/redhat-certificate.der || true
+          7z x ../extra/spice-guest-tools.exe drivers/vioserial/w10/amd64/vioser.cat
+          openssl pkcs7 -inform der -in drivers/vioserial/w10/amd64/vioser.cat -print_certs | grep Red -A1000 | grep -m1 'END CERTIFICATE' -B 10000 | openssl x509 -inform pem -outform der > ../drivers/redhat-certificate.der || true
           popd > /dev/null
           rm -rf spice-drivers
 
@@ -826,41 +840,35 @@ let
 
           popd > /dev/null
 
-          ${pkgs.cdrtools}/bin/mkisofs -quiet -J -o "unattended.iso" "unattended/"
+          mkisofs -quiet -J -o "unattended.iso" "unattended/"
 
-          ${pkgs.lib.optionalString configuration.useEFI ''
+          ${lib.optionalString configuration.useEFI ''
             cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd .
             chmod u+w OVMF_VARS.fd
           ''}
 
-          ${pkgs.lib.optionalString recordInstallation (
-            let
-              vncrec = "${pkgs.xvfb-run}/bin/xvfb-run ${pkgs.vncrec}/bin/vncrec";
-              ffmpeg = "${pkgs.ffmpeg}/bin/ffmpeg";
-            in
-            ''
-              (
-                # Wait for QEMU to start
-                sleep 3
+          ${lib.optionalString recordInstallation (''
+            (
+              # Wait for QEMU to start
+              sleep 3
 
-                # Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
-                # NOTE: vncrec needs to run with an X instance, so we use a virtual one.
-                ${vncrec} -shared 127.0.0.1:5900 -record /dev/stdout | \
-                  ${vncrec} -movie /dev/stdin | \
-                  ${ffmpeg} -i - -c:v libaom-av1 -crf 0 -b:v 0 -pix_fmt yuv420p recording.mkv
-              ) &
-            ''
-          )}
+              # Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
+              # NOTE: vncrec needs to run with an X instance, so we use a virtual one.
+              xvfb-run vncrec -shared 127.0.0.1:5900 -record /dev/stdout | \
+                xvfb-run vncrec -movie /dev/stdin | \
+                ffmpeg -i - -c:v libaom-av1 -crf 0 -b:v 0 -pix_fmt yuv420p recording.mkv
+            ) &
+          '')}
 
           ${expand configuration.commands}
 
-          ${pkgs.packer}/bin/packer build ${packerConfiguration}
+          packer build ${packerConfiguration}
 
           wait
 
           mkdir -p output/share/windows-vm
 
-          ${pkgs.lib.optionalString recordInstallation ''
+          ${lib.optionalString recordInstallation ''
             mv recording.mkv output/share/windows-vm
           ''}
 
@@ -876,14 +884,14 @@ let
             SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
             set -euo pipefail
             cd "$SCRIPT_DIR"
-            ${pkgs.quickemu}/bin/quickemu --vm windows.conf --display spice
+            ${lib.getExe pkgs.quickemu} --vm windows.conf --display spice
           ''} output/share/windows-vm/start
 
           cp -a ${pkgs.writeShellScript "stop" ''
             SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
             set -euo pipefail
             cd "$SCRIPT_DIR"
-            ${pkgs.quickemu}/bin/quickemu --vm windows.conf --kill
+            ${lib.getExe pkgs.quickemu} --vm windows.conf --kill
           ''} output/share/windows-vm/stop
 
           cp -a ${./scripts/mount} output/share/windows-vm/mount
@@ -908,7 +916,7 @@ let
     };
 in
 {
-  options = with pkgs.lib; {
+  options = with lib; {
     output = mkOption {
       type = types.package;
       description = "The output Windows image";

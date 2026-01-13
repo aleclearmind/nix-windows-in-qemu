@@ -15,10 +15,14 @@
       outputHashAlgo = "sha256";
       outputHash = hash;
 
+      nativeBuildInputs = with pkgs; [
+        jq
+        curl
+      ];
+
       buildPhase =
         let
-          jq = "${pkgs.jq}/bin/jq";
-          curl = ''${pkgs.curl}/bin/curl --disable --silent --fail-with-body --user-agent "Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0" --proto =https --tlsv1.2 --http1.1'';
+          curl = ''curl --disable --silent --fail-with-body --user-agent "Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0" --proto =https --tlsv1.2 --http1.1'';
           userFriendlyHash = builtins.convertHash {
             hash = hash;
             hashAlgo = "sha256";
@@ -46,7 +50,7 @@
               SKU_ID=$(
                 ${curl} \
                   "https://www.microsoft.com/software-download-connector/api/getskuinformationbyproductedition?profile=$PROFILE&ProductEditionId=$PRODUCT_ID&SKU=undefined&friendlyFileName=undefined&Locale=en-US&sessionID=$SESSION_ID" | \
-                  ${jq} -r '.Skus[] | select(.LocalizedLanguage=="'"$I18N"'" or .Language=="'"$I18N"'").Id'
+                  jq -r '.Skus[] | select(.LocalizedLanguage=="'"$I18N"'" or .Language=="'"$I18N"'").Id'
               )
 
               log "Response from Microsoft server:"
@@ -56,9 +60,9 @@
                 ${curl} \
                   --referer "https://www.microsoft.com/en-us/software-download/windows11" \
                   "https://www.microsoft.com/software-download-connector/api/GetProductDownloadLinksBySku?profile=$PROFILE&productEditionId=undefined&SKU=$SKU_ID&friendlyFileName=undefined&Locale=en-US&sessionID=$SESSION_ID" | \
-                  ${jq} | \
+                  jq | \
                   tee /dev/stderr | \
-                  ${jq} -r '.ProductDownloadOptions[0].Uri'
+                  jq -r '.ProductDownloadOptions[0].Uri'
               )
 
               log ""
