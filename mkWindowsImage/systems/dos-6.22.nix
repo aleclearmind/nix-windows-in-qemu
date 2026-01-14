@@ -2,24 +2,10 @@
 {
   systems."dos-6.22" =
     let
-      dos622 = pkgs.stdenv.mkDerivation {
-        pname = "msdos";
-        version = "6.22";
-        src = pkgs.fetchurl {
-          url = "https://www.kirsle.net/projects/DOS/MS-DOS-6.22.zip";
-          sha256 = "sha256-Z3eJvx7kjyIA8alv5t6DV03UEbUjIyQOoOQAGu9xybo=";
-        };
-
-        unpackPhase = ''
-          ${pkgs.unzip}/bin/unzip "$src"
-        '';
-
-        installPhase = ''
-          mkdir -p "$out"
-          mv *.img "$out"
-        '';
-
-        dontFixup = true;
+      dos622 = pkgs.fetchzip {
+        url = "https://www.kirsle.net/projects/DOS/MS-DOS-6.22.zip";
+        sha256 = "sha256-/+tp2w45YufH39CCN1QNxCOOMFR3j4nIBxryNNzxMXw=";
+        stripRoot = false;
       };
     in
     {

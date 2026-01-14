@@ -3,24 +3,10 @@
   systems."windows-3.11" =
     let
       popBack = list: pkgs.lib.lists.sublist 0 ((builtins.length list) - 1) list;
-      windows311 = pkgs.stdenv.mkDerivation {
-        pname = "windows";
-        version = "3.11";
-        src = pkgs.fetchurl {
-          url = "https://www.kirsle.net/projects/DOS/WfW-3.11.zip";
-          sha256 = "sha256-pdagalY3+8X1MGztJWe6D51Oh8Ngqd5jqT3QPqd+P+E=";
-        };
-
-        unpackPhase = ''
-          ${pkgs.unzip}/bin/unzip "$src"
-        '';
-
-        installPhase = ''
-          mkdir -p "$out"
-          mv *.img "$out"
-        '';
-
-        dontFixup = true;
+      windows311 = pkgs.fetchzip {
+        url = "https://www.kirsle.net/projects/DOS/WfW-3.11.zip";
+        sha256 = "sha256-21QVcfXi3ZIM2X6ZL2Aq44jHEWK10+M9xONzCEEhsms=";
+        stripRoot = false;
       };
       insertFloppy = index: [
         {
