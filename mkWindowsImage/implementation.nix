@@ -40,7 +40,6 @@ let
           socat
           vncdo
           tesseract
-          packer
           cdrtools
         ]
         ++ (lib.optionals recordInstallation [
@@ -53,79 +52,6 @@ let
         let
           configuration = config.systems."${version}";
           min = value: upperBound: if (builtins.isNull upperBound) then value else (lib.min value upperBound);
-          packerConfiguration = pkgs.writeTextFile {
-            name = "windows.pkr.hcl";
-            text = ''
-              packer {
-                required_plugins {
-                  qemu = {
-                    source = "github.com/hashicorp/qemu"
-                    version = "1.1.4"
-                  }
-                }
-              }
-
-              source "qemu" "windows" {
-                communicator = "none"
-
-                cpus = "${builtins.toString (min cpus configuration.maxCpus)}"
-
-                disk_size = "${builtins.toString (min diskSize configuration.maxDiskSize)}"
-                format = "qcow2"
-                disk_compression = "true"
-                disk_interface = "virtio"
-
-                headless = "true"
-
-                # Note: this not actually used, we specify the device by hand
-                iso_url = "${configuration.iso}"
-                iso_checksum = "none"
-
-                memory = "${builtins.toString (min memory configuration.maxMemory)}"
-                net_device = "virtio-net"
-
-                output_directory = "output"
-
-                vnc_port_min = 5900
-                vnc_port_max = 5900
-
-                qemu_binary = "qemu-system-${configuration.qemuArchitecture}"
-
-                qemu_img_args {
-                  create = ["-o", "compat=1.1"]
-                  convert = ["-o", "compat=1.1"]
-                  resize  = ["-o", "compat=1.1"]
-                }
-
-                qemuargs = [
-                  ["-net", "none"]
-                  , ["-machine", "q35,accel=kvm"]
-                  , ["-cpu", "${configuration.cpu}"]
-                  , ["-monitor", "unix:qemu-monitor.socket,server,nowait"]
-                  , ["-drive", "file=output/packer-windows,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"]
-                  ${lib.optionalString (!(builtins.isNull configuration.iso)) ''
-                    , ["-drive", "media=cdrom,index=0,file=${configuration.iso}"]
-                  ''}
-                  ${lib.optionalString (!(builtins.isNull configuration.floppy)) ''
-                    , ["-drive", "format=raw,if=floppy,file=${configuration.floppy},readonly=on"]
-                  ''}
-                  , ["-drive", "media=cdrom,index=2,file=unattended.iso"]
-                  , ["-name", "qemu-windows-install,process=qemu-windows-install"]
-                  ${lib.optionalString configuration.useEFI ''
-                    , ["-drive", "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"]
-                    , ["-drive", "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"]
-                  ''}
-                ]
-
-                boot_wait = "0.1s"
-                shutdown_timeout = "60m"
-              }
-
-              build {
-                sources = ["source.qemu.windows"]
-              }
-            '';
-          };
           passes = {
             "windowsPE.bat" = ''
               ${lib.optionalString ((builtins.length configuration.autounattendXml.servicesToDisable) > 0) ''
@@ -755,46 +681,44 @@ let
               ''
             else
               "";
-          packerPlugins = pkgs.stdenv.mkDerivation {
-            pname = "packer-plugins";
-            version = "1.0";
-            src = ./.;
-
-            outputHashMode = "recursive";
-            outputHashAlgo = "sha256";
-            outputHash = "sha256-z4PrpKCrn+1c10O5shDz0vv8xqA9bHQR093iIh0XbSM=";
-
-            nativeBuildInputs = [ pkgs.packer ];
-
-            buildPhase = ''
-              export HOME="$PWD"
-              packer plugins install github.com/hashicorp/qemu
-            '';
-
-            installPhase = ''
-              rm .config/packer/checkpoint_signature
-              mkdir -p "$out"
-              cp -ar .config/packer "$out"
-            '';
-          };
+          qemuDrives = [
+            "file=image,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
+            "media=cdrom,index=2,file=unattended.iso"
+          ]
+          ++ (lib.optionals (!(builtins.isNull configuration.iso)) [
+            "media=cdrom,index=0,file=${configuration.iso}"
+          ])
+          ++ (lib.optionals (!(builtins.isNull configuration.floppy)) [
+            "format=raw,if=floppy,file=${configuration.floppy},readonly=on"
+          ])
+          ++ (lib.optionals configuration.useEFI [
+            "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"
+            "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"
+          ]);
+          qemu = ''
+            qemu-system-${configuration.qemuArchitecture} \
+              -name qemu-windows-install,process=qemu-windows-install \
+              -machine q35,accel=kvm \
+              -cpu ${configuration.cpu} \
+              -smp ${builtins.toString (min cpus configuration.maxCpus)} \
+              -m ${builtins.toString (min memory configuration.maxMemory)}M \
+              -monitor unix:qemu-monitor.socket,server,nowait \
+              -device virtio-net,netdev=user.0 \
+              -netdev user,id=user.0 \
+              -vnc 127.0.0.1:0 \
+              -boot once=d \
+              ${builtins.concatStringsSep " \\\n" (
+                builtins.map (
+                  entry:
+                  lib.escapeShellArgs [
+                    "-drive"
+                    entry
+                  ]
+                ) qemuDrives
+              )}
+          '';
         in
         ''
-          # Do not contact hashicorp servers
-          export CHECKPOINT_DISABLE=1
-
-          # Verbose logging
-          export PACKER_LOG=1
-
-          mkdir -p fake-home/.config fake-home/.cache/packer
-          export HOME="$PWD/fake-home"
-
-          # Prepare plugins.
-          # This should be a no-op, we already fetched them in a previous
-          # derivation. If it isn't, it will fail due to no internet
-          # connection.
-          cp -ar ${packerPlugins}/packer fake-home/.config
-          packer init ${packerConfiguration}
-
           # Prepare unattended.iso
           mkdir unattended
           pushd unattended > /dev/null
@@ -862,11 +786,27 @@ let
 
           ${expand configuration.commands}
 
-          packer build ${packerConfiguration}
+          mkdir -p output/share/windows-vm
+
+          qemu-img \
+            create \
+            -f qcow2 \
+            -o compat=1.1 \
+            image \
+            ${builtins.toString (min diskSize configuration.maxDiskSize)}M
+
+          ${qemu}
+
+          # Rewrite the image compressing and removing zeros
+          qemu-img \
+            convert \
+            -c \
+            -o compat=1.1 \
+            -O qcow2 \
+            image \
+            output/share/windows-vm/image.qcow2
 
           wait
-
-          mkdir -p output/share/windows-vm
 
           ${lib.optionalString recordInstallation ''
             mv recording.mkv output/share/windows-vm
@@ -895,8 +835,6 @@ let
           ''} output/share/windows-vm/stop
 
           cp -a ${./scripts/mount} output/share/windows-vm/mount
-
-          mv output/packer-windows output/share/windows-vm/image.qcow2
 
           mkdir -p output/bin
           cp -a ${pkgs.writeShellScript "prepare-windows-vm" ''

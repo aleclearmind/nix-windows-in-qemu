@@ -70,7 +70,6 @@ Other facts:
 ## TODO
 
 * [ ] Implement `nix run`.
-* [ ] Get rid of packer, we probably can do without at this point.
 * [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
 * [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
