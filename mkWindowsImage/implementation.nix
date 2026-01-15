@@ -43,9 +43,12 @@ let
           cdrtools
         ]
         ++ (lib.optionals recordInstallation [
-          ffmpeg
+          ffmpeg-full
           xvfb-run
-          vncrec
+          tigervnc
+          xwininfo
+          gawk
+          procps
         ]);
 
       buildPhase =
@@ -773,14 +776,35 @@ let
 
           ${lib.optionalString recordInstallation (''
             (
-              # Wait for QEMU to start
-              sleep 3
+              xvfb-run --server-args='-screen 0 1920x1080x24' ${pkgs.writeShellScript "record" ''
+                set -euo pipefail
 
-              # Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
-              # NOTE: vncrec needs to run with an X instance, so we use a virtual one.
-              xvfb-run vncrec -shared 127.0.0.1:5900 -record /dev/stdout | \
-                xvfb-run vncrec -movie /dev/stdin | \
-                ffmpeg -i - -c:v libaom-av1 -crf 0 -b:v 0 -pix_fmt yuv420p recording.mkv
+                # Wait for QEMU to start before connecting to VNC
+                sleep 1
+
+                (
+                  # Wait for vncviewer to start, before querying the features of its window
+                  sleep 1
+                  set -x
+
+                  WINDOW_POSITION=$(
+                    xwininfo  -name "QEMU (qemu-windows-install) - TigerVNC" | \
+                      gawk 'match($0, /-geometry ([0-9]+x[0-9]+).([0-9]+).([0-9]+)/, a) { print "-video_size " a[1] " -i +" a[2] "," a[3] }'
+                  )
+
+                  # Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
+                  ffmpeg \
+                    -f x11grab \
+                    -framerate 25 \
+                    $WINDOW_POSITION \
+                    recording.mkv
+                ) &
+
+                vncviewer -Shared 127.0.0.1:5900
+
+                # Stop recording with ffmpeg
+                pkill -INT ffmpeg
+              ''}
             ) &
           '')}
 

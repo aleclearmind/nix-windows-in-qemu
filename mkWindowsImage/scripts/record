@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+vncviewer -Shared 127.0.0.1:5900 &
+
+sleep 3
+
+WINDOW_POSITION=$(
+  xwininfo  -name "QEMU (qemu-windows-install) - TigerVNC" | \
+    gawk 'match($0, /-geometry ([0-9]+x[0-9]+).([0-9]+).([0-9]+)/, a) { print "-video_size " a[1] " -i +" a[2] "," a[3] }'
+)
+
+# Record VNC output, convert it to YUV4MPEG2 and then use ffmpeg to produce a lossless AV1 video
+ffmpeg -loglevel quiet -f x11grab $WINDOWS_POSITION -c:v libaom-av1 -crf 0 -b:v 0 -pix_fmt yuv420p recording.mkv
