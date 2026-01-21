@@ -48,9 +48,15 @@ with pkgs.lib;
               description = "Whether to use EFI for this system.";
             };
 
+            emitsSummary = mkOption {
+              type = types.bool;
+              default = true;
+              description = "Whether this installation emits a summary, exfiltrated via SMB.";
+            };
+
             iso = mkOption {
-              type = types.path;
-              default = "/dev/null";
+              type = types.nullOr types.path;
+              default = null;
               description = "Path to the ISO image for installation.";
             };
 

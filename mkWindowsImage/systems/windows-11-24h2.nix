@@ -1,4 +1,9 @@
-{ pkgs, fetchIso, ... }:
+{
+  pkgs,
+  fetchIso,
+  userConfiguration,
+  ...
+}:
 let
   windows11Post24h2 = iso: {
     useEFI = true;
@@ -106,6 +111,9 @@ let
         </ProductKey>
       '';
       servicesToDisable = [
+        "WSearch"
+      ]
+      ++ (pkgs.lib.optionals userConfiguration.disableWindowsDefender [
         "Sense"
         "WdBoot"
         "WdFilter"
@@ -113,7 +121,7 @@ let
         "WdNisSvc"
         "WinDefend"
         "webthreatdefsvc"
-      ];
+      ]);
     };
   };
 in

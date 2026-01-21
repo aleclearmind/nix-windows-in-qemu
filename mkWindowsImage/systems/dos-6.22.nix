@@ -15,6 +15,7 @@
       maxMemory = 16;
       maxDiskSize = 150;
       floppy = "${dos622}/Dos622-1.img";
+      emitSummary = false;
       commands =
         let
           dosIdle = pkgs.fetchurl {

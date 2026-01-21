@@ -54,7 +54,7 @@ typeSafeFunction {
       description = "Memory for the VM in MB.";
     };
 
-    disableWindowsUpdates = mkOption {
+    disableWindowsUpdate = mkOption {
       type = types.bool;
       default = true;
       description = "Disable Windows Update.";
@@ -68,8 +68,14 @@ typeSafeFunction {
 
     zeroOutFreeSpace = mkOption {
       type = types.bool;
-      default = true;
+      default = false;
       description = "Zero out unused disk space to reduce the size of the final image.";
+    };
+
+    compressDiskImage = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Rewrite and compress the final disk image.";
     };
 
     debloat = mkOption {
@@ -111,6 +117,20 @@ typeSafeFunction {
       default = false;
       example = false;
       description = "If true, produces share/windows-vm/recording.mkv, i.e., a video of the installation process recorded via VNC.";
+    };
+
+    testInstallation = mkOption {
+      type = types.bool;
+      default = true;
+      example = true;
+      description = "If true, tests that the final installation has the expected characteristics (e.g., Windows Updates disabled).";
+    };
+
+    runNgen = mkOption {
+      type = types.bool;
+      default = false;
+      example = false;
+      description = "If true, optimize .Net programs upon install.";
     };
 
   };

@@ -73,7 +73,6 @@ Other facts:
 * [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
 * [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
-* [ ] Figure out a way to test things.
 * [ ] Improve configurability of the software being preinstalled.
 * [ ] Add support for older Windows versions.
 * [ ] Disable firewall

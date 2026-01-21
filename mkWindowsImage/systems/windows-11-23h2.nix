@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, userConfiguration, ... }:
 {
   systems."windows-11-23h2" = {
     iso = pkgs.fetchurl {
@@ -43,6 +43,9 @@
         </ProductKey>
       '';
       servicesToDisable = [
+        "WSearch"
+      ]
+      ++ (pkgs.lib.optionals userConfiguration.disableWindowsDefender [
         "Sense"
         "WdBoot"
         "WdFilter"
@@ -50,7 +53,7 @@
         "WdNisSvc"
         "WinDefend"
         "webthreatdefsvc"
-      ];
+      ]);
     };
   };
 }

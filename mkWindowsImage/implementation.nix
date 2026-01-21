@@ -13,16 +13,23 @@ let
       cpus,
       diskSize,
       memory,
-      disableWindowsUpdates,
+      disableWindowsUpdate,
       disableWindowsDefender,
       zeroOutFreeSpace,
+      compressDiskImage,
       debloat,
       timeZone,
       computerName,
       username,
       password,
       recordInstallation,
+      testInstallation,
+      runNgen,
     }:
+    let
+      configuration = config.systems."${version}";
+      needsSamba = configuration.emitsSummary;
+    in
     pkgs.stdenv.mkDerivation {
       pname = "windows-image";
       version = "1.0";
@@ -42,6 +49,14 @@ let
           tesseract
           cdrtools
         ]
+        ++ (lib.optionals needsSamba [
+          samba
+          libressl.nc
+        ])
+        ++ (lib.optionals testInstallation [
+          unzip
+          procps
+        ])
         ++ (lib.optionals recordInstallation [
           ffmpeg-full
           xvfb-run
@@ -53,12 +68,12 @@ let
 
       buildPhase =
         let
-          configuration = config.systems."${version}";
           min = value: upperBound: if (builtins.isNull upperBound) then value else (lib.min value upperBound);
           passes = {
             "windowsPE.bat" = ''
+
               ${lib.optionalString ((builtins.length configuration.autounattendXml.servicesToDisable) > 0) ''
-                cmd.exe /c "start /min cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs"
+                start /min cmd.exe /c ">x:\windowsPE.log 2>&1 ( cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs )"
               ''}
 
               rem Disable TPM check
@@ -71,7 +86,9 @@ let
             # are not running yet and self-protecting themselves from being disabled.
             # In particular, Windows Defender is already running during the specialize phase.
             "windowsPE/disable-services.vbs" = ''
-              WScript.Echo "Scanning for newly created SYSTEM registry hive file to disable services..."
+              On Error Resume Next
+
+              WScript.Echo "Scanning for newly created SYSTEM and SOFTWARE registry hive files..."
 
               Set fso = CreateObject("Scripting.FileSystemObject")
 
@@ -85,60 +102,115 @@ let
                       WScript.Sleep 100
                   Loop
                   WScript.Echo exec.StdOut.ReadAll
-                   WScript.Echo exec.StdErr.ReadAll
+                  WScript.Echo exec.StdErr.ReadAll
                   Execute = exec.ExitCode
               End Function
 
-              Function FindHiveFiles()
-                  Set FindHiveFiles = CreateObject("Scripting.Dictionary")
+              Function FindHiveDirectories()
+                  Set FindHiveDirectories = CreateObject("Scripting.Dictionary")
                   For Each drive In fso.Drives
                       If drive.IsReady And drive.DriveLetter <> "X" Then
                           For Each folder In Array("$Windows.~BT\NewOS\Windows", "Windows")
-                              file = fso.BuildPath(fso.BuildPath(drive.RootFolder, folder), "System32\config\SYSTEM")
-                              If fso.FileExists(file) And fso.FileExists(file + ".LOG1") And fso.FileExists(file + ".LOG2") Then
-                                  FindHiveFiles.Add file, Nothing
+                              directory = fso.BuildPath(fso.BuildPath(drive.RootFolder, folder), "System32\config\")
+                              If fso.FileExists(directory + "SYSTEM") And fso.FileExists(directory + "SYSTEM.LOG1") And fso.FileExists(directory + "SYSTEM.LOG2") And _
+                                 fso.FileExists(directory + "SOFTWARE") And fso.FileExists(directory + "SOFTWARE.LOG1") And fso.FileExists(directory + "SOFTWARE.LOG2") Then
+                                  WScript.Echo "Hive directory found: " + directory
+                                  FindHiveDirectories.Add directory, Nothing
                               End If
                           Next
                       End If
                   Next
               End Function
 
-              For Each file In FindHiveFiles
-                  WScript.Echo "Will ignore file at '" + file + "' because it was already present when Windows Setup started."
-                  existing.Add file, Nothing
+              For Each directory In FindHiveDirectories
+                  WScript.Echo "Will ignore files at '" + directory + "' because it was already present when Windows Setup started."
+                  existing.Add directory, Nothing
               Next
 
               Do
-                  For Each file In FindHiveFiles
-                      If Not existing.Exists(file) Then
-                          WScript.Echo "Mounting " + file
+                  For Each directory In FindHiveDirectories
+                      If directory = "" Then
+                          WScript.Echo "Something wrong"
+                      End If
+                      If Not existing.Exists(directory) And directory <> "" Then
+                          WScript.Echo "Mounting " + directory
                           ret = 1
                           While ret > 0
                               WScript.Sleep 500
-                              ret = Execute("reg.exe LOAD HKLM\mount """ + file + """")
+                              ret = Execute("reg load HKLM\new-SYSTEM """ + directory + "SYSTEM""")
                           Wend
 
-                          For Each service In Array(${
-                            "\"" + (builtins.concatStringsSep "\", \"" configuration.autounattendXml.servicesToDisable) + "\""
-                          })
-                              WScript.Echo "Disabling " + service
-                              ret = Execute("reg.exe ADD HKLM\mount\ControlSet001\Services\" + service + " /v Start /t REG_DWORD /d 4 /f")
-                          Next
+                          ret = 1
+                          While ret > 0
+                              WScript.Sleep 500
+                              ret = Execute("reg load HKLM\new-SOFTWARE """ + directory + "SOFTWARE""")
+                          Wend
+
+                          ret = Execute("reg import e:\passes\windowsPE\early-registry-patches.reg")
+                          If ret <> 0 Then
+                            WScript.Echo "Command failed"
+                            Exit Do
+                          End If
 
                           WScript.Echo "Unmounting"
-                          ret = Execute("reg.exe UNLOAD HKLM\mount")
+                          ret = Execute("reg unload HKLM\new-SYSTEM")
+                          If ret <> 0 Then
+                            WScript.Echo "Command failed"
+                            Exit Do
+                          End If
 
-                          WScript.Echo "All done! Closing in 5 seconds."
-                          WScript.Sleep 5000
+                          ret = Execute("reg unload HKLM\new-SOFTWARE")
+                          If ret <> 0 Then
+                            WScript.Echo "Command failed"
+                            Exit Do
+                          End If
+
+
+                          WScript.Echo "All done!"
+
+                          ret = Execute("cmd /c copy x:\windowsPE.log """ + directory + """")
+                          WScript.Echo "Copy result: " + CStr(ret)
+
                           Exit Do
                       End If
                       WScript.Sleep 1000
                   Next
               Loop
             '';
-            "specialize.bat" = "";
+            # Make sure you only use HKLM\new-SYSTEM and HKLM\new-SOFTWARE only
+            "windowsPE/early-registry-patches.reg" = ''
+              REGEDIT4
+
+              ${builtins.concatStringsSep "\n" (
+                builtins.map (serviceName: ''
+                  [HKEY_LOCAL_MACHINE\new-SYSTEM\ControlSet001\Services\${serviceName}]
+                  "Start"=dword:00000004
+                '') configuration.autounattendXml.servicesToDisable
+              )}
+
+              [HKEY_LOCAL_MACHINE\new-SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System]
+              "EnableFirstLogonAnimation"=dword:00000000
+
+              [HKEY_LOCAL_MACHINE\new-SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon]
+              "EnableFirstLogonAnimation"=dword:00000000
+
+              [HKEY_LOCAL_MACHINE\new-SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate]
+              "WUServer"="127.6.6.6"
+              "WUStatusServer"="127.6.6.6"
+              "UpdateServiceUrlAlternate"=""
+              "SetProxyBehaviorForUpdateDetection"=dword:00000000
+              "DoNotConnectToWindowsUpdateInternetLocations"=dword:00000001
+
+              [HKEY_LOCAL_MACHINE\new-SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU]
+              "NoAutoUpdate"=dword:00000001
+              "AUOptions"=dword:00000002
+              "UseWUServer"=dword:00000001
+            '';
             "oobeSystem.bat" = builtins.concatStringsSep "\n" [
               ''
+                cd %USERPROFILE%\Desktop
+
+                >oobeSystem.log 2>&1 (
                 rem Set high performance mode
                 powercfg /SETACTIVE 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
@@ -194,13 +266,13 @@ let
                 msiexec /i e:\extra\npp.Installer.x64.msi /quiet /passive /qn
                 msiexec /i e:\extra\chocolatey.msi /quiet /passive /qn
                 msiexec /i e:\extra\Everything.x64.msi /quiet /passive /qn
+                msiexec /i e:\extra\7z-x64.msi /quiet /passive /qn
 
                 rem Uninstall OneDrive stuff
                 OneDriveSetup.exe /uninstall
 
-                rem Disable SearchIndexer
-                sc config wsearch start=disabled
-
+              ''
+              (lib.optionalString runNgen ''
                 rem ngen
                 if exist %windir%\microsoft.net\framework\v4.0.30319\ngen.exe (
                         %windir%\microsoft.net\framework\v4.0.30319\ngen.exe update /force /queue
@@ -210,11 +282,10 @@ let
                         %windir%\microsoft.net\framework64\v4.0.30319\ngen.exe update /force /queue
                         %windir%\microsoft.net\framework64\v4.0.30319\ngen.exe executequeueditems
                 )
-              ''
-              (lib.optionalString disableWindowsUpdates ''
-                rem Disable Windows Updates by setting update server to 127.6.6.6
-                reg import e:\passes\oobeSystem\fake-windows-update-server.reg
-                gpupdate /force
+              '')
+              (lib.optionalString (testInstallation && disableWindowsUpdate) ''
+                rem Ask Windows Updates to detect new updates
+                wuauclt.exe /detectnow
               '')
               ''
                 rem Shrink the image
@@ -232,9 +303,88 @@ let
                 sdelete.exe /accepteula -z c:
               '')
               ''
+                cd %USERPROFILE%\Desktop
+
+                mkdir summary
+                cd summary
+
+                mkdir file-lists
+                cd file-lists
+                cmd /c e:\passes\oobeSystem\list-all-drives.bat
+                cd ..
+
+                rem Export relevant parts of the registry
+                mkdir registry
+                cd registry
+                reg export HKLM\SYSTEM\CurrentControlSet\Services services.reg
+                reg export HKLM\SYSTEM\CurrentControlSet\Control\Power power.reg
+                cd ..
+
+                rem List all services
+                sc query type= all state= all > services.txt 2>&1
+
+                rem List running processes
+                tasklist /FO CSV > processes.csv 2>&1
+                tasklist /FO CSV /SVC > processes-with-services.csv 2>&1
+
+                rem Dump all events
+                mkdir events
+                cd events
+                rem Use a different cmd or it might terminate the parent script
+                cmd /c e:\passes\oobeSystem\dump-all-events.bat
+                cd ..
+
+                rem "Dump Windows Update logs"
+                powershell -Command "Get-WindowsUpdateLog -ForceFlush -LogPath .\windows-update.log -Confirm:$false"
+
+                cd ..
+                )
+
+                cd %USERPROFILE%\Desktop
+
+                move c:\windows\system32\config\windowsPE.log summary\
+                move oobeSystem.log summary\
+
+                "C:\Program Files\7-Zip\7z.exe" a summary.zip summary\
+
+                net use z: \\10.0.2.4\host
+
+                move summary.zip z:\
+
                 shutdown /s /t 0
               ''
             ];
+            "oobeSystem/dump-all-events.bat" = ''
+              @echo off
+              setlocal EnableDelayedExpansion
+
+              for /f "tokens=*" %%i in ('wevtutil el') do (
+                set "log=%%i"
+                set "file=!log:/=-!"
+                wevtutil epl "!log!" "!file!.evtx"
+              )
+
+              endlocal
+            '';
+            "oobeSystem/list-all-drives.bat" = ''
+              @echo off
+              setlocal EnableDelayedExpansion
+
+              REM Get list of drives (e.g., "Drives: C:\ D:\ E:\")
+              for /f "tokens=1,*" %%A in ('fsutil fsinfo drives') do (
+                  set DRIVES=%%B
+              )
+
+              REM Loop through each drive
+              for %%D in (%DRIVES%) do (
+                  set DRIVE=%%~D
+                  set LETTER=!DRIVE:~0,1!
+                  echo Listing !DRIVE! ...
+                  dir /s /b !DRIVE! > !LETTER!.txt 2>nul
+              )
+
+              echo Done.
+            '';
             "oobeSystem/fake-windows-update-server.reg" = ''
               REGEDIT4
 
@@ -250,6 +400,11 @@ let
               "UseWUServer"=dword:00000001
             '';
             "oobeSystem/oobeSystem.ps1" = builtins.concatStringsSep "\n" [
+              ''
+                # Enable guest logon on smb
+                Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force
+                Set-SmbClientConfiguration -RequireSecuritySignature $false -Force
+              ''
               ''
                 function Extract-ZipToDesktop {
                     param(
@@ -570,14 +725,20 @@ let
               name = "firefox-installer.exe";
             }
             {
+              # TODO: use a fixed version of chromium https://chromium.woolyss.com/download/
               url = "https://dl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B69E1383A-15F0-16D1-5896-8867623813A4%7D%26lang%3Den%26browser%3D4%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dprefers%26ap%3D-arch_x64-statsdef_1%26installdataindex%3Dempty/chrome/install/ChromeStandaloneSetup64.exe";
-              sha256 = "sha256-giDH9SSbDuySfC2qCfXERqJJ/C60ukYkVjOIr7BUMbA=";
+              sha256 = "sha256-PvzJSD4qbyV0qRA8Po1sjopPgcph/OUzDxektTSDUJY=";
               name = "chrome-installer.exe";
             }
             {
               url = "https://www.voidtools.com/Everything-1.4.1.1030.x64.msi";
               sha256 = "sha256-W/8tukbHGDi4lm00C6NqGB+wDM1cvaRZADcR64B2jIk=";
               name = "Everything.x64.msi";
+            }
+            {
+              url = "https://7-zip.org/a/7z2501-x64.msi";
+              sha256 = "sha256-5+sLftXvpOCHt7F/GReX969bf0QtEpDGbzohd3AF71c=";
+              name = "7z-x64.msi";
             }
           ];
           copyUrls =
@@ -618,77 +779,65 @@ let
               cps
             ]
           );
-          expand =
-            commands:
-            let
-              expandCommand =
-                action:
-                (
-                  if action ? description then
-                    ''
-                      echo "${action.description}"
-                    ''
-                  else
-                    ""
-                )
-                + (
-                  let
-                    qemuCommand = command: ''
-                      echo "${command}" | socat - unix-connect:qemu-monitor.socket >& /dev/null
-                    '';
-                    vncDo = command: "vncdo --server 127.0.0.1::5900 ${command} >& /dev/null";
-                  in
-                  (
-                    if action.type == "sleep" then
-                      ''
-                        echo "Waiting for ${builtins.toString action.time} seconds"
-                        sleep ${builtins.toString action.time}
-                      ''
-                    else if action.type == "vncdo" then
-                      "${vncDo action.arguments}"
-                    else if action.type == "change-floppy" then
-                      ''
-                        echo "Setting floppy to ${action.path}"
-                        ${qemuCommand "change floppy0 ${action.path}"}
-                        sleep 3
-                      ''
-                    else if action.type == "quit" then
-                      ''
-                        echo "Quitting"
-                        ${qemuCommand "quit"}
-                      ''
-                    else if action.type == "wait-for" then
-                      ''
-                        echo 'Waiting for "${action.text}"'
-                        (
-                            while ! grep --quiet -i "${action.text}" image.txt >& /dev/null; do
-                                rm -f image.txt image.png
-                                if ${vncDo "capture image.png"}; then
-                                    tesseract image.png image
-                                    cat image.txt
-                                fi
-                            done
-                            rm image.txt
-                        )
-                      ''
-                    else
-                      (throw "Unknown command ${action.type}")
-                  )
-                );
-            in
-            if (builtins.length commands) > 0 then
-              ''
-                (
-                  ${lib.concatStringsSep "\n" (builtins.map expandCommand commands)}
-                ) &
-              ''
-            else
-              "";
+          expandCommand =
+            action:
+            (
+              if action ? description then
+                ''
+                  echo "${action.description}"
+                ''
+              else
+                ""
+            )
+            + (
+              let
+                qemuCommand = command: ''
+                  echo "${command}" | socat - unix-connect:qemu-monitor.socket >& /dev/null
+                '';
+                vncDo = command: "vncdo --server 127.0.0.1::5900 ${command} >& /dev/null";
+              in
+              (
+                if action.type == "sleep" then
+                  ''
+                    echo "Waiting for ${builtins.toString action.time} seconds"
+                    sleep ${builtins.toString action.time}
+                  ''
+                else if action.type == "vncdo" then
+                  "${vncDo action.arguments}"
+                else if action.type == "change-floppy" then
+                  ''
+                    echo "Setting floppy to ${action.path}"
+                    ${qemuCommand "change floppy0 ${action.path}"}
+                    sleep 3
+                  ''
+                else if action.type == "quit" then
+                  ''
+                    echo "Quitting"
+                    ${qemuCommand "quit"}
+                  ''
+                else if action.type == "wait-for" then
+                  ''
+                    echo 'Waiting for "${action.text}"'
+                    (
+                        while ! grep --quiet -i "${action.text}" image.txt >& /dev/null; do
+                            rm -f image.txt image.png
+                            if ${vncDo "capture image.png"}; then
+                                tesseract image.png image
+                                cat image.txt
+                            fi
+                        done
+                        rm image.txt
+                    )
+                  ''
+                else
+                  (throw "Unknown command ${action.type}")
+              )
+            );
           qemuDrives = [
             "file=image,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
-            "media=cdrom,index=2,file=unattended.iso"
           ]
           ++ (lib.optionals (!(builtins.isNull configuration.iso)) [
+            "media=cdrom,index=2,file=unattended.iso"
             "media=cdrom,index=0,file=${configuration.iso}"
           ])
           ++ (lib.optionals (!(builtins.isNull configuration.floppy)) [
@@ -698,97 +847,114 @@ let
             "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"
             "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"
           ]);
-          qemu = ''
-            qemu-system-${configuration.qemuArchitecture} \
-              -name qemu-windows-install,process=qemu-windows-install \
-              -machine q35,accel=kvm \
-              -cpu ${configuration.cpu} \
-              -smp ${builtins.toString (min cpus configuration.maxCpus)} \
-              -m ${builtins.toString (min memory configuration.maxMemory)}M \
-              -monitor unix:qemu-monitor.socket,server,nowait \
-              -device virtio-net,netdev=user.0 \
-              -netdev user,id=user.0 \
-              -vnc 127.0.0.1:0 \
-              -boot once=d \
-              ${builtins.concatStringsSep " \\\n" (
-                builtins.map (
-                  entry:
-                  lib.escapeShellArgs [
-                    "-drive"
-                    entry
-                  ]
-                ) qemuDrives
-              )}
-          '';
         in
         ''
-          # Prepare unattended.iso
-          mkdir unattended
-          pushd unattended > /dev/null
+          set -euo pipefail
 
-          ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
-            cp -a ${autounattendXML} Autounattend.xml
-            cat Autounattend.xml
-          ''}
+          function log() {
+            echo "$1" > /dev/stderr
+          }
 
-          mkdir extra
-          pushd extra > /dev/null
-          ${copyUrls extraFiles}
-          popd > /dev/null
+          function quiet() {
+            QUIET_OUTPUT=$(mktemp)
+            if ! "$@" >& "$QUIET_OUTPUT"; then
+              log "The following command failed: $*"
+              cat "$QUIET_OUTPUT"
+              rm -f "$QUIET_OUTPUT"
+              return 1
+            fi
 
-          ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
-            mkdir passes
-            pushd passes > /dev/null
-            ${createFiles passes}
-            popd > /dev/null
-          ''}
+            rm -f "$QUIET_OUTPUT"
+            return 0
+          }
 
-          # Extract in drivers all the w11 drivers.
-          # Autounattend.xml will direct the Windows setup to recursively
-          # scan e:\drivers
-          mkdir drivers
-          pushd drivers > /dev/null
-          7z x ${virtioIsoPath} $(7z l ${virtioIsoPath}  | grep w11 | grep -i amd64 | grep -F D.... | awk '{ print $4 }')
-          popd > /dev/null
+          ${
+            # Do not prepare the ISO, if we're not installing from an ISO
+            lib.optionalString (!builtins.isNull configuration.iso) ''
+              log "Preparing unattended.iso file"
+              mkdir unattended
+              pushd unattended > /dev/null
 
-          7z x ${virtioIsoPath} guest-agent/qemu-ga-x86_64.msi
-          mv guest-agent/qemu-ga-x86_64.msi extra/
-          rmdir guest-agent
+              ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+                cp -a ${autounattendXML} Autounattend.xml
+              ''}
 
-          mkdir spice-drivers
-          pushd spice-drivers > /dev/null
-          7z x ../extra/spice-guest-tools.exe drivers/vioserial/w10/amd64/vioser.cat
-          openssl pkcs7 -inform der -in drivers/vioserial/w10/amd64/vioser.cat -print_certs | grep Red -A1000 | grep -m1 'END CERTIFICATE' -B 10000 | openssl x509 -inform pem -outform der > ../drivers/redhat-certificate.der || true
-          popd > /dev/null
-          rm -rf spice-drivers
+              mkdir extra
+              pushd extra > /dev/null
+              ${copyUrls extraFiles}
+              popd > /dev/null
 
-          echo "Files in unattended.iso:"
-          find
+              ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+                mkdir passes
+                pushd passes > /dev/null
+                ${createFiles passes}
+                popd > /dev/null
+              ''}
 
-          popd > /dev/null
+              # Extract in drivers all the w11 drivers.
+              # Autounattend.xml will direct the Windows setup to recursively
+              # scan e:\drivers
+              mkdir drivers
+              pushd drivers > /dev/null
+              quiet 7z x ${virtioIsoPath} $(7z l ${virtioIsoPath}  | grep w11 | grep -i amd64 | grep -F D.... | awk '{ print $4 }')
+              popd > /dev/null
 
-          mkisofs -quiet -J -o "unattended.iso" "unattended/"
+              quiet 7z x ${virtioIsoPath} guest-agent/qemu-ga-x86_64.msi
+              mv guest-agent/qemu-ga-x86_64.msi extra/
+              rmdir guest-agent
+
+              mkdir spice-drivers
+              pushd spice-drivers > /dev/null
+              quiet 7z x ../extra/spice-guest-tools.exe drivers/vioserial/w10/amd64/vioser.cat
+              (
+                openssl pkcs7 -inform der -in drivers/vioserial/w10/amd64/vioser.cat -print_certs | \
+                  grep Red -A1000 | \
+                  grep -m1 'END CERTIFICATE' -B 10000 | \
+                  openssl x509 -inform pem -outform der \
+                  > ../drivers/redhat-certificate.der \
+                  || true
+              ) >& /dev/null
+              test -s ../drivers/redhat-certificate.der
+              popd > /dev/null
+              rm -rf spice-drivers
+
+              popd > /dev/null
+
+              log "Assembling unattended.iso"
+              mkisofs -quiet -R -J -o "unattended.iso" "unattended/"
+            ''
+          }
 
           ${lib.optionalString configuration.useEFI ''
+            log "Creating EFI variables file"
             cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd .
             chmod u+w OVMF_VARS.fd
           ''}
 
+          TO_WAIT=()
+
           ${lib.optionalString recordInstallation (''
+            log "Launching a virtual X instance with VNC and ffmpeg recording from it"
             (
               xvfb-run --server-args='-screen 0 1920x1080x24' ${pkgs.writeShellScript "record" ''
                 set -euo pipefail
 
+                function wait-for() {
+                  while ! "$@" >& /dev/null; do
+                    sleep 0.5
+                  done
+                }
+
                 # Wait for QEMU to start before connecting to VNC
-                sleep 1
+                wait-for nc -z -w 1 127.0.0.1 5900
 
                 (
                   # Wait for vncviewer to start, before querying the features of its window
-                  sleep 1
-                  set -x
+                  WINDOW_NAME="QEMU (qemu-windows-install) - TigerVNC"
+                  wait-for xwininfo -name "$WINDOW_NAME"
 
                   WINDOW_POSITION=$(
-                    xwininfo  -name "QEMU (qemu-windows-install) - TigerVNC" | \
+                    xwininfo -name "$WINDOW_NAME" | \
                       gawk 'match($0, /-geometry ([0-9]+x[0-9]+).([0-9]+).([0-9]+)/, a) { print "-video_size " a[1] " -i +" a[2] "," a[3] }'
                   )
 
@@ -799,41 +965,231 @@ let
                     $WINDOW_POSITION \
                     recording.mkv
                 ) &
+                FFMPEG_JOB="$!"
 
                 vncviewer -Shared 127.0.0.1:5900
 
                 # Stop recording with ffmpeg
                 pkill -INT ffmpeg
+
+                wait "$FFMPEG_JOB"
               ''}
             ) &
+            # We must wait for ffmpeg to be done
+            TO_WAIT+=( "$!" )
           '')}
 
-          ${expand configuration.commands}
+
+          ${lib.optionalString ((builtins.length configuration.commands) > 0) ''
+            log "Launching script to interact with the VM via VNC"
+            (
+              ${lib.concatStringsSep "\n" (builtins.map expandCommand configuration.commands)}
+            ) &
+            # No need to wait for this to terminate
+          ''}
 
           mkdir -p output/share/windows-vm
+          mkdir summary
 
-          qemu-img \
+          log "Preparing disk image"
+          quiet \
+            qemu-img \
             create \
             -f qcow2 \
             -o compat=1.1 \
             image \
             ${builtins.toString (min diskSize configuration.maxDiskSize)}M
 
-          ${qemu}
+          ${lib.optionalString needsSamba ''
+            log "Launching samba"
+            (
+              mkdir -p /build/smb
+              mkdir -p /build/smb/private
+              smbd --daemon --debuglevel 1 --configfile=${
+                pkgs.writeTextFile {
+                  name = "smb.conf";
+                  text = ''
+                    [global]
+                    interfaces=127.0.0.1
+                    bind interfaces only=yes
+                    pid directory=/build/smb
+                    lock directory=/build/smb
+                    state directory=/build/smb
+                    cache directory=/build/smb
+                    ncalrpc dir=/build/smb/ncalrpc
+                    smb passwd file=/build/smb/smbpasswd
+                    private dir=/build/smb/private
+                    log file=/build/smb/smbd.log
+                    security = user
+                    map to guest = Bad User
+                    load printers = no
+                    printing = bsd
+                    disable spoolss = yes
+                    usershare max shares = 0
+                    smb ports = 8445, 8139
 
-          # Rewrite the image compressing and removing zeros
-          qemu-img \
-            convert \
-            -c \
-            -o compat=1.1 \
-            -O qcow2 \
-            image \
-            output/share/windows-vm/image.qcow2
+                    [host]
+                    path=/build/summary
+                    read only=no
+                    guest ok=yes
+                    force user=nixbld
+                  '';
+                }
+              } >& /dev/null
 
-          wait
+              # In case of debugging:
+              # tail -f /build/smb/smbd.log
+            ) &
+            # No need to wait for this to terminate
+          ''}
+
+          log "Launching QEMU"
+          qemu-system-${configuration.qemuArchitecture} \
+            -name qemu-windows-install,process=qemu-windows-install \
+            -machine q35,accel=kvm \
+            -cpu ${configuration.cpu} \
+            -smp ${builtins.toString (min cpus configuration.maxCpus)} \
+            -m ${builtins.toString (min memory configuration.maxMemory)}M \
+            -monitor unix:qemu-monitor.socket,server,nowait \
+            -device virtio-net,netdev=user.0 \
+            -netdev 'user,id=user.0${lib.optionalString needsSamba ",guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 8445,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 8139"}' \
+            -vnc 127.0.0.1:0 \
+            -boot once=d \
+            ${builtins.concatStringsSep " \\\n" (
+              builtins.map (
+                entry:
+                lib.escapeShellArgs [
+                  "-drive"
+                  entry
+                ]
+              ) qemuDrives
+            )}
+
+          if test "''${#TO_WAIT[@]}" -gt 0; then
+            log "Waiting for ''${#TO_WAIT[@]} jobs"
+            wait "''${TO_WAIT[@]}"
+          fi
+
+          ${lib.optionalString configuration.emitsSummary ''
+            log "Collecting installation summary"
+            mv summary/summary.zip .
+            rm -rf summary
+
+            unzip -q summary.zip
+
+            cd summary
+
+            ${lib.optionalString testInstallation ''
+              log "Running tests"
+              ${pkgs.writeShellScript "run-tests" ''
+                set -euo pipefail
+
+                RESULT=0
+
+                function log() {
+                  echo "$1" > /dev/stderr
+                }
+
+                function test_check() {
+                  MESSAGE="$1"
+                  shift
+
+                  if "$@"; then
+                    echo "✅ $MESSAGE" > /dev/stderr
+                  else
+                    echo "❌ $MESSAGE" > /dev/stderr
+                    RESULT=1
+                  fi
+                }
+
+                function test_service_state() {
+                  SERVICE_NAME="$1"
+                  shift
+                  EXPECTED_STATE="$1"
+                  shift
+
+                  test_check \
+                    "Service $SERVICE_NAME is in state $EXPECTED_STATE" \
+                    test "$(grep -i -A10 'SERVICE_NAME: '"$SERVICE_NAME" services.txt  | grep STATE | head -n1 | grep "$EXPECTED_STATE" | wc -l)" -eq 1
+                }
+
+                function test_service_available() {
+                  SERVICE_NAME="$1"
+                  shift
+
+                  test_check \
+                    "Service $SERVICE_NAME is available" \
+                    test "$(grep -i 'SERVICE_NAME: '"$SERVICE_NAME" services.txt | wc -l)" -eq 1
+                }
+
+                function test_log_contains() {
+                  WHERE="$1"
+                  shift
+
+                  WHAT="$1"
+                  shift
+
+                  test_check \
+                    "Checking $WHERE contains \"$WHAT\"" \
+                    test "$(grep "$WHAT" "$WHERE" | wc -l)" -ge 1
+                }
+
+                test_service_state "QEMU-GA" "RUNNING"
+                test_service_available "vdservice"
+
+                for SERVICE_NAME in ${lib.escapeShellArgs configuration.autounattendXml.servicesToDisable}; do
+                  test_service_state "$SERVICE_NAME" "STOPPED"
+                done
+
+                test_log_contains oobeSystem.log "Win11Debloat Script"
+                test_log_contains oobeSystem.log "Script completed! Please check above for any errors."
+
+                ${lib.optionalString disableWindowsUpdate ''
+                  test_log_contains windows-update.log "127.6.6.6"
+                ''}
+
+                test_log_contains windowsPE.log "All done!"
+
+                # TODO: test installed programs are available
+
+                exit "$RESULT"
+              ''} |& tee test-results.log''}
+
+            cd ..
+
+            mv summary output/share/windows-vm/
+
+            du -hs . >> output/share/windows-vm/summary/disk-space.txt
+            du -hs image >> output/share/windows-vm/summary/disk-space.txt
+          ''}
+
+          ${
+            if compressDiskImage then
+              ''
+                log "Rewriting disk image to compress it"
+                qemu-img \
+                  convert \
+                  -c \
+                  -o compat=1.1 \
+                  -O qcow2 \
+                  image \
+                  output/share/windows-vm/image.qcow2
+              ''
+            else
+              ''
+                mv image output/share/windows-vm/image.qcow2
+              ''
+          }
+
+          ${lib.optionalString configuration.emitsSummary ''
+            du -hs output/share/windows-vm/image.qcow2 >> output/share/windows-vm/summary/disk-space.txt
+          ''}
 
           ${lib.optionalString recordInstallation ''
-            mv recording.mkv output/share/windows-vm
+            ${lib.optionalString configuration.emitsSummary ''
+              du -hs recording.mkv >> output/share/windows-vm/summary/disk-space.txt
+            ''}
+              mv recording.mkv output/share/windows-vm
           ''}
 
           cat > output/share/windows-vm/windows.conf <<EOF
@@ -867,6 +1223,8 @@ let
             cp -ar --reflink=auto "$SCRIPT_DIR/../share/windows-vm" .
             chmod u+w --recursive windows-vm
           ''} output/bin/prepare-windows-vm
+
+          log "All done!"
         '';
 
       installPhase = ''
