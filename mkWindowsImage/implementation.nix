@@ -259,10 +259,18 @@ let
                 msiexec /i e:\extra\qemu-ga-x86_64.msi /quiet /passive /qn
 
                 rem Install some other software
+
+                cd %USERPROFILE%\Desktop
+
                 e:\extra\Git-64-bit.exe /VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS="icons,ext\reg\shellhere,assoc,assoc_sh"
                 e:\extra\systeminformer-release-setup.exe -silent
                 e:\extra\firefox-installer.exe /S
-                e:\extra\chrome-installer.exe /silent /install
+
+                rem Chromium installer needs to write things in the installer directory
+                copy e:\extra\chromium-installer.exe .
+                start /wait chromium-installer.exe
+                del chromium-installer.exe
+
                 msiexec /i e:\extra\npp.Installer.x64.msi /quiet /passive /qn
                 msiexec /i e:\extra\chocolatey.msi /quiet /passive /qn
                 msiexec /i e:\extra\Everything.x64.msi /quiet /passive /qn
@@ -725,10 +733,9 @@ let
               name = "firefox-installer.exe";
             }
             {
-              # TODO: use a fixed version of chromium https://chromium.woolyss.com/download/
-              url = "https://dl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B69E1383A-15F0-16D1-5896-8867623813A4%7D%26lang%3Den%26browser%3D4%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dprefers%26ap%3D-arch_x64-statsdef_1%26installdataindex%3Dempty/chrome/install/ChromeStandaloneSetup64.exe";
-              sha256 = "sha256-PvzJSD4qbyV0qRA8Po1sjopPgcph/OUzDxektTSDUJY=";
-              name = "chrome-installer.exe";
+              url = "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/1572379/mini_installer.exe";
+              sha256 = "sha256-wrr7tt8zEzgPyxRsFwXGjGvWSS+cfQN/VThFpSVxYlg=";
+              name = "chromium-installer.exe";
             }
             {
               url = "https://www.voidtools.com/Everything-1.4.1.1030.x64.msi";
