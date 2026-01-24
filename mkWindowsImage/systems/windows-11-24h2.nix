@@ -5,7 +5,11 @@
   ...
 }:
 let
-  windows11Post24h2 = iso: {
+  windows11Post24h2 = buildNumber: iso: {
+    operatingSystem = {
+      name = "windows";
+      version = "10.0.${builtins.toString buildNumber}";
+    };
     useEFI = true;
     iso = iso;
     commands = [
@@ -126,13 +130,13 @@ let
   };
 in
 {
-  systems."windows-11-24h2" = windows11Post24h2 (fetchIso {
+  systems."windows-11-24h2" = windows11Post24h2 26100 (fetchIso {
     fileName = "Win11_24H2_EnglishInternational_x64.iso";
     hash = "sha256-1aTJfD6DXEOxuaMZMzJ8ABdmzjFGCLqRLy//yHYEQwk=";
     productId = 3113;
     backupUrl = "https://archive.org/download/Win11_24H2_EnglishInternational_x64/Win11_24H2_EnglishInternational_x64.iso";
   });
-  systems."windows-11-25h2" = windows11Post24h2 (fetchIso {
+  systems."windows-11-25h2" = windows11Post24h2 26200 (fetchIso {
     fileName = "Win11_25H2_EnglishInternational_x64.iso";
     hash = "sha256-uq62yQ3VFkgVS2TEDJ4MFNk6Qn9hGhu0nIB3+i/3M2Q=";
     productId = 3262;

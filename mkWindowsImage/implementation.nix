@@ -2,6 +2,7 @@
   pkgs,
   config,
   userConfiguration,
+  common,
   ...
 }:
 let
@@ -25,10 +26,106 @@ let
       recordInstallation,
       testInstallation,
       runNgen,
+      preinstall,
     }:
     let
       configuration = config.systems."${version}";
       needsSamba = configuration.emitsSummary;
+      isCompatible =
+        operatingSystem:
+        (operatingSystem.name == configuration.operatingSystem.name)
+        && (
+          (builtins.isNull operatingSystem.minimumVersion)
+          || (
+            (builtins.compareVersions operatingSystem.minimumVersion configuration.operatingSystem.version) <= 0
+          )
+        )
+        && (
+          (builtins.isNull operatingSystem.maximumVersion)
+          || (
+            (builtins.compareVersions operatingSystem.maximumVersion configuration.operatingSystem.version) >= 0
+          )
+        );
+      compatiblePreinstall = builtins.filter (package: isCompatible package.operatingSystem) preinstall;
+      installerType =
+        package:
+        let
+          installer = package.installer;
+          hasExtension = extension: (lib.strings.hasSuffix extension (lib.strings.toLower installer.name));
+        in
+        if (!(builtins.isNull installer.arguments)) then
+          "arguments"
+        else if (!(builtins.isNull installer.script)) then
+          "script"
+        else if hasExtension ".msi" then
+          "msi"
+        else if hasExtension ".zip" then
+          "zip"
+        else
+          throw "Unknown installer type for for ${installer.name}";
+      installersByType =
+        type:
+        if builtins.isNull type then
+          compatiblePreinstall
+        else
+          builtins.filter (package: (installerType package) == type) compatiblePreinstall;
+      handleInstallerType =
+        type: handler: builtins.concatStringsSep "\n" (builtins.map handler (installersByType type));
+
+      drivers =
+        let
+          operatingSystem = configuration.operatingSystem;
+        in
+          common.extractWith7z {
+          name = "qemu-ga-x86_64.msi";
+          archive = common.virtioIso;
+          paths =
+            if operatingSystem.name == "windows" then
+              let
+                versionName = common.windowsVersionName operatingSystem.version;
+                directory =
+                  if versionName == "11" then
+                    "w11"
+                  else if versionName == "10" then
+                    "w10"
+                  else if versionName == "7" then
+                    "w7"
+                  else if versionName == "8" then
+                    "w8"
+                  else if versionName == "8.1" then
+                    "w8.1"
+                  else if versionName == "xp" then
+                    "xp"
+                  else
+                    null;
+              in
+              if !builtins.isNull directory then
+                [
+                  "Balloon/${directory}/amd64"
+                  "NetKVM/${directory}/amd64"
+                  "amd64/${directory}"
+                  "fwcfg/${directory}/amd64"
+                  "pvpanic/${directory}/amd64"
+                  "qemufwcfg/${directory}/amd64"
+                  "qemupciserial/${directory}/amd64"
+                  "smbus/${directory}/amd64"
+                  "sriov/${directory}/amd64"
+                  "viofs/${directory}/amd64"
+                  "viogpudo/${directory}/amd64"
+                  "vioinput/${directory}/amd64"
+                  "viomem/${directory}/amd64"
+                  "viorng/${directory}/amd64"
+                  "vioscsi/${directory}/amd64"
+                  "vioserial/${directory}/amd64"
+                  "viosock/${directory}/amd64"
+                  "viostor/${directory}/amd64"
+                ]
+              else
+                [ ]
+            else
+              [ ];
+
+        };
     in
     pkgs.stdenv.mkDerivation {
       pname = "windows-image";
@@ -229,9 +326,6 @@ let
                 rem Disable password expiration for user
                 wmic useraccount where "name='${username}'" set PasswordExpires=FALSE
 
-                rem Installs the code signing cert for RedHat for drivers embedded in spice-guest-tools
-                certutil -addstore -f "TrustedPublisher" e:/drivers/redhat-certificate.der
-
                 rem WSUS / Updates
                 rem When upgrading packages, we'd normally have to wait for Tiworker to exit
                 rem This will not exit if sharing is enabled, as it will be waiting for connections
@@ -252,29 +346,19 @@ let
                 netsh advfirewall firewall add rule name="Open Port 3389" dir=in action=allow protocol=TCP localport=3389
                 reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
 
-                rem Install spice guest tools
-                e:\extra\spice-guest-tools.exe /S
-
-                rem Install QEMU Guest Additions
-                msiexec /i e:\extra\qemu-ga-x86_64.msi /quiet /passive /qn
-
-                rem Install some other software
-
                 cd %USERPROFILE%\Desktop
 
-                e:\extra\Git-64-bit.exe /VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS="icons,ext\reg\shellhere,assoc,assoc_sh"
-                e:\extra\systeminformer-release-setup.exe -silent
-                e:\extra\firefox-installer.exe /S
+                ${handleInstallerType "arguments" (
+                  package: "e:\\extra\\${package.installer.name} ${package.installer.arguments}"
+                )}
 
-                rem Chromium installer needs to write things in the installer directory
-                copy e:\extra\chromium-installer.exe .
-                start /wait chromium-installer.exe
-                del chromium-installer.exe
+                ${handleInstallerType "script" (
+                  package: package.installer.script "e:\\extra\\${package.installer.name}"
+                )}
 
-                msiexec /i e:\extra\npp.Installer.x64.msi /quiet /passive /qn
-                msiexec /i e:\extra\chocolatey.msi /quiet /passive /qn
-                msiexec /i e:\extra\Everything.x64.msi /quiet /passive /qn
-                msiexec /i e:\extra\7z-x64.msi /quiet /passive /qn
+                ${handleInstallerType "msi" (
+                  package: "msiexec /i e:\\extra\\${package.installer.name} /quiet /passive /qn"
+                )}
 
                 rem Uninstall OneDrive stuff
                 OneDriveSetup.exe /uninstall
@@ -445,10 +529,9 @@ let
                 }
 
                 # Extract zips to the desktop
-                Extract-ZipToDesktop -zipFilePath "e:\extra\depends_x64.zip"
-                Extract-ZipToDesktop -zipFilePath "e:\extra\SysinternalsSuite.zip"
-                Extract-ZipToDesktop -zipFilePath "e:\extra\Dependencies_x64_Release.zip"
-
+                ${handleInstallerType "zip" (
+                  package: ''Extract-ZipToDesktop -zipFilePath "e:\\extra\\${package.installer.name}"''
+                )}
               ''
               (lib.optionalString debloat ''
                 Extract-ZipToDesktop -zipFilePath "e:\extra\Win11Debloat.zip"
@@ -525,31 +608,7 @@ let
                                versionScope="nonSxS">
                       <DriverPaths>
                         <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-                          <Path>e:\drivers\fwcfg\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="2">
-                          <Path>e:\drivers\vioinput\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="3">
-                          <Path>e:\drivers\vioscsi\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="4">
-                          <Path>e:\drivers\viostor\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="5">
-                          <Path>e:\drivers\vioserial\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="7">
-                          <Path>e:\drivers\viorng\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="8">
-                          <Path>e:\drivers\NetKVM\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="9">
-                          <Path>e:\drivers\viofs\w11\amd64</Path>
-                        </PathAndCredentials>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="10">
-                          <Path>e:\drivers\Balloon\w11\amd64</Path>
+                          <Path>e:\drivers</Path>
                         </PathAndCredentials>
                       </DriverPaths>
                     </component>
@@ -680,89 +739,6 @@ let
             url = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso";
             sha256 = "sha256-4UzyuUSSw+kl8AcLp/3+3rIEjJHuqcWlr7MCMqOXYzE=";
           };
-          extraFiles = [
-            {
-              url = "https://www.spice-space.org/download/windows/spice-guest-tools/spice-guest-tools-0.141/spice-guest-tools-0.141.exe";
-              sha256 = "sha256-tb4HVIArzX9/4Mzbh3+KYiS6E6KvfYTrCHqJs7AjfaI=";
-              name = "spice-guest-tools.exe";
-            }
-            {
-              url = "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9/npp.8.9.Installer.x64.msi";
-              sha256 = "sha256-LeTdpx0AcwhEl0d0wsZMzHyqV6Nd5O7D2Cq99+UGyNI=";
-              name = "npp.Installer.x64.msi";
-            }
-            {
-              url = "https://github.com/chocolatey/choco/releases/download/2.6.0/chocolatey-2.6.0.0.msi";
-              sha256 = "sha256-UP7K8R0LqJzxbdQeZTzaQJzclNKaeS9wDZ3EWrUxPi0=";
-              name = "chocolatey.msi";
-            }
-            {
-              url = "https://www.dependencywalker.com/depends22_x64.zip";
-              sha256 = "sha256-NdtophOHSi6MFCLrDqeGH4JfxxcX1G2r8fJJzpY0tPE=";
-              name = "depends_x64.zip";
-            }
-            {
-              # Unfortunately, Sysinternals does not release versioned installers
-              url = "https://download.sysinternals.com/files/SysinternalsSuite.zip";
-              sha256 = "sha256-oOzkxS7pxxw8AgOCRdPgs8YVD/8OJr1734gvx+5Uz2k=";
-              name = "SysinternalsSuite.zip";
-            }
-            {
-              url = "https://github.com/lucasg/Dependencies/releases/download/v1.11.1/Dependencies_x64_Release.zip";
-              sha256 = "sha256-fSLcAPHAn9RBXUitdNHPgBiT6DuaOZRLD85t6nzq6pk=";
-              name = "Dependencies_x64_Release.zip";
-            }
-            {
-              url = "https://codeload.github.com/Raphire/Win11Debloat/zip/refs/tags/2025.12.29";
-              sha256 = "sha256-moOrldUaZMP55zhubxX2kP5KRuAzWGU/cXYSkp48OS8=";
-              name = "Win11Debloat.zip";
-            }
-            {
-              url = "https://github.com/git-for-windows/git/releases/download/v2.52.0.windows.1/Git-2.52.0-64-bit.exe";
-              sha256 = "sha256-2N56MVImbIuxNXfquFDqHfbcz4wqpIvltKHFi3GQ1iw=";
-              name = "Git-64-bit.exe";
-            }
-            {
-              url = "https://github.com/winsiderss/systeminformer/releases/download/v3.2.25011.2103/systeminformer-3.2.25011-release-setup.exe";
-              sha256 = "sha256-dhLV5EpaOSq58NG1uKeb2jzb4ZhI6O6ewjkJqvParUU=";
-              name = "systeminformer-release-setup.exe";
-            }
-            {
-              url = "https://download-installer.cdn.mozilla.net/pub/firefox/releases/146.0.1/win64/en-US/Firefox%20Setup%20146.0.1.exe";
-              sha256 = "sha256-TjKTXQueQj5xjCwxBm+gloYHca/KSpiHCay0SONx3iI=";
-              name = "firefox-installer.exe";
-            }
-            {
-              url = "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/1572379/mini_installer.exe";
-              sha256 = "sha256-wrr7tt8zEzgPyxRsFwXGjGvWSS+cfQN/VThFpSVxYlg=";
-              name = "chromium-installer.exe";
-            }
-            {
-              url = "https://www.voidtools.com/Everything-1.4.1.1030.x64.msi";
-              sha256 = "sha256-W/8tukbHGDi4lm00C6NqGB+wDM1cvaRZADcR64B2jIk=";
-              name = "Everything.x64.msi";
-            }
-            {
-              url = "https://7-zip.org/a/7z2501-x64.msi";
-              sha256 = "sha256-5+sLftXvpOCHt7F/GReX969bf0QtEpDGbzohd3AF71c=";
-              name = "7z-x64.msi";
-            }
-          ];
-          copyUrls =
-            list:
-            let
-              fetchUrls = map (
-                entry:
-                let
-                  fetched = pkgs.fetchurl {
-                    url = entry.url;
-                    sha256 = entry.sha256;
-                  };
-                in
-                "cp -a ${fetched} ${entry.name}"
-              ) list;
-            in
-            lib.concatStringsSep "\n" fetchUrls;
           createFiles = (
             files:
             let
@@ -888,7 +864,9 @@ let
 
               mkdir extra
               pushd extra > /dev/null
-              ${copyUrls extraFiles}
+              ${handleInstallerType null (
+                package: ''cp -a ${package.installer.package} ${package.installer.name}''
+              )}
               popd > /dev/null
 
               ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
@@ -903,27 +881,8 @@ let
               # scan e:\drivers
               mkdir drivers
               pushd drivers > /dev/null
-              quiet 7z x ${virtioIsoPath} $(7z l ${virtioIsoPath}  | grep w11 | grep -i amd64 | grep -F D.... | awk '{ print $4 }')
+              cp -ar "${drivers}/"* .
               popd > /dev/null
-
-              quiet 7z x ${virtioIsoPath} guest-agent/qemu-ga-x86_64.msi
-              mv guest-agent/qemu-ga-x86_64.msi extra/
-              rmdir guest-agent
-
-              mkdir spice-drivers
-              pushd spice-drivers > /dev/null
-              quiet 7z x ../extra/spice-guest-tools.exe drivers/vioserial/w10/amd64/vioser.cat
-              (
-                openssl pkcs7 -inform der -in drivers/vioserial/w10/amd64/vioser.cat -print_certs | \
-                  grep Red -A1000 | \
-                  grep -m1 'END CERTIFICATE' -B 10000 | \
-                  openssl x509 -inform pem -outform der \
-                  > ../drivers/redhat-certificate.der \
-                  || true
-              ) >& /dev/null
-              test -s ../drivers/redhat-certificate.der
-              popd > /dev/null
-              rm -rf spice-drivers
 
               popd > /dev/null
 

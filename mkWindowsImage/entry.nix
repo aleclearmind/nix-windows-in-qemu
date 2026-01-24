@@ -1,5 +1,6 @@
 { pkgs }:
 let
+  lib = (import ./lib.nix { inherit pkgs; });
   typeSafeFunction =
     { options, implementation }:
     # Return a function that accepts some arguments
@@ -15,6 +16,12 @@ let
           }
         ];
       }).config;
+  defaultPreinstall = builtins.attrValues (
+    import ./default-preinstall.nix {
+      inherit pkgs;
+      inherit lib;
+    }
+  );
 in
 typeSafeFunction {
   options = with pkgs.lib; {
@@ -133,6 +140,58 @@ typeSafeFunction {
       description = "If true, optimize .Net programs upon install.";
     };
 
+    preinstall = mkOption {
+      type = types.listOf (
+        types.submodule {
+          options = {
+            installer = mkOption {
+              type = types.submodule {
+                options = {
+                  name = mkOption {
+                    type = types.str;
+                  };
+                  package = mkOption {
+                    type = types.package;
+                  };
+                  arguments = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                  };
+                  script = mkOption {
+                    # TODO: a function taking the full path to the installer
+                    default = null;
+                  };
+                };
+              };
+            };
+            operatingSystem = {
+              name = mkOption {
+                type = types.enum [
+                  "dos"
+                  "windows"
+                ];
+                default = "windows";
+                description = "The name of the operating system.";
+              };
+
+              minimumVersion = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+              };
+
+              maximumVersion = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+              };
+
+            };
+          };
+        }
+      );
+      default = defaultPreinstall;
+      description = "List of software to preinstall.";
+    };
+
   };
   implementation =
     userConfiguration:
@@ -142,8 +201,8 @@ typeSafeFunction {
           _module.args = {
             pkgs = pkgs;
             userConfiguration = userConfiguration;
-          }
-          // (import ./lib.nix { inherit pkgs; });
+            common = lib;
+          };
         }
         ./systems/options.nix
         ./systems/windows-11-24h2.nix

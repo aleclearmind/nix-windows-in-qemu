@@ -1,6 +1,10 @@
 { pkgs, userConfiguration, ... }:
 {
   systems."windows-11-23h2" = {
+    operatingSystem = {
+      name = "windows";
+      version = "10.0.22631";
+    };
     iso = pkgs.fetchurl {
       url = "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/22631.2428.231001-0608.23H2_NI_RELEASE_SVC_REFRESH_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso";
       sha256 = "sha256-yNvJa2HQTIsB+vbOB5T98zllx7NQ6qPrHmaXAZkClFw=";

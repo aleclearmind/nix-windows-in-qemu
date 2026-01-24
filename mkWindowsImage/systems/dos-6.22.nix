@@ -9,6 +9,10 @@
       };
     in
     {
+      operatingSystem = {
+        name = "dos";
+        version = "6.22";
+      };
       qemuArchitecture = "i386";
       cpu = "486";
       maxCpus = 1;

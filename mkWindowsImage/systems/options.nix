@@ -6,6 +6,27 @@ with pkgs.lib;
       type = types.lazyAttrsOf (
         types.submodule {
           options = {
+            operatingSystem = mkOption {
+              type = types.submodule {
+                options = {
+
+                  name = mkOption {
+                    type = types.enum [
+                      "dos"
+                      "windows"
+                    ];
+                    description = "The name of the operating system.";
+                  };
+
+                  version = mkOption {
+                    type = types.strMatching "^([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?$";
+                    description = "The version of the operating system.";
+                  };
+
+                };
+              };
+            };
+
             qemuArchitecture = mkOption {
               type = types.enum [
                 "x86_64"

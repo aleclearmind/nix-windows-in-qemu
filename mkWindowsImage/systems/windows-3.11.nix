@@ -25,6 +25,10 @@
     in
     config.systems."dos-6.22"
     // {
+      operatingSystem = {
+        name = "windows";
+        version = "3.11";
+      };
       commands =
         (popBack config.systems."dos-6.22".commands)
         ++ [
