@@ -85,12 +85,6 @@ typeSafeFunction {
       description = "Rewrite and compress the final disk image.";
     };
 
-    debloat = mkOption {
-      type = types.bool;
-      default = true;
-      description = "Debloat using Raphire/Win11Debloat.";
-    };
-
     timeZone = mkOption {
       type = types.str;
       default = "W. Europe Standard Time";
@@ -157,7 +151,16 @@ typeSafeFunction {
                     type = types.nullOr types.str;
                     default = null;
                   };
-                  script = mkOption {
+                  priority = mkOption {
+                    type = types.int;
+                    default = 50;
+                    description = "Large numbers mean higher priority.";
+                  };
+                  bat = mkOption {
+                    # TODO: a function taking the full path to the installer
+                    default = null;
+                  };
+                  ps1 = mkOption {
                     # TODO: a function taking the full path to the installer
                     default = null;
                   };

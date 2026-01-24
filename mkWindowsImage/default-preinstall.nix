@@ -173,7 +173,7 @@ in
         sha256 = "sha256-wrr7tt8zEzgPyxRsFwXGjGvWSS+cfQN/VThFpSVxYlg=";
       };
       name = "chromium-installer.exe";
-      script = installerPath: ''
+      bat = installerPath: ''
         rem Chromium installer needs to write things in the installer directory
         copy ${installerPath} .
         start /wait chromium-installer.exe
@@ -233,10 +233,9 @@ in
 
   };
 
-  # Do not rename to this something that's lexicographically after spiceGuest.
-  # spiceGuest depends on this.
   spiceCertificate = {
     installer = {
+      priority = 100;
       package =
         let
           certificate = lib.extractWith7z {
@@ -268,7 +267,7 @@ in
           dontFixup = true;
         };
       name = "redhat-certificate.der";
-      script = installerPath: ''
+      bat = installerPath: ''
         rem Installs the code signing cert for RedHat for drivers embedded in spice-guest-tools
         certutil -addstore -f "TrustedPublisher" "${installerPath}"
       '';
@@ -276,6 +275,31 @@ in
 
     # https://github.com/utmapp/spice-nsis/blob/main/win-guest-tools.nsis
     operatingSystem.minimumVersion = "5.1";
+  };
+  win11debloat = {
+    installer = {
+      name = "Win11Debloat.zip";
+      package = pkgs.fetchurl {
+        url = "https://codeload.github.com/Raphire/Win11Debloat/zip/refs/tags/2025.12.29";
+        sha256 = "sha256-moOrldUaZMP55zhubxX2kP5KRuAzWGU/cXYSkp48OS8=";
+      };
+      ps1 = installerPath: ''
+        Extract-ZipToDesktop -zipFilePath "${installerPath}"
+        $desktop = [System.Environment]::GetFolderPath('Desktop')
+        cd $desktop
+        cd .\Win11Debloat*
+        cd .\Win11Debloat*
+        # Do not create a restore point
+        $filePath = "Win11Debloat.ps1"
+        $lines = Get-Content $filePath
+        $lines | Where-Object { $_ -notmatch "Checkpoint-Computer" } | Set-Content $filePath
+        .\Win11Debloat.ps1 -RunDefaults -Silent
+
+        cd $desktop
+        Remove-Item -Recurse .\Win11Debloat*
+      '';
+    };
+    operatingSystem.minimumVersion = "10";
   };
 
 }

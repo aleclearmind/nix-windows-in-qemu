@@ -5,6 +5,13 @@
     url = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso";
     sha256 = "sha256-4UzyuUSSw+kl8AcLp/3+3rIEjJHuqcWlr7MCMqOXYzE=";
   };
+
+  mapLines =
+    handler: inputList:
+    builtins.concatStringsSep "\n" (
+      builtins.filter (line: line != "") (builtins.map handler inputList)
+    );
+
   windowsVersionName =
     version:
     let

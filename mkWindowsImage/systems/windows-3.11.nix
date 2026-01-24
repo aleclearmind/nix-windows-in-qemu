@@ -29,8 +29,9 @@
         name = "windows";
         version = "3.11";
       };
-      commands =
-        (popBack config.systems."dos-6.22".commands)
+
+      installation.commands =
+        (popBack config.systems."dos-6.22".installation.commands)
         ++ [
           {
             type = "change-floppy";

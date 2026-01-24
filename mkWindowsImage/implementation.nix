@@ -18,7 +18,6 @@ let
       disableWindowsDefender,
       zeroOutFreeSpace,
       compressDiskImage,
-      debloat,
       timeZone,
       computerName,
       username,
@@ -30,7 +29,7 @@ let
     }:
     let
       configuration = config.systems."${version}";
-      needsSamba = configuration.emitsSummary;
+      needsSamba = configuration.installation.emitsSummary;
       isCompatible =
         operatingSystem:
         (operatingSystem.name == configuration.operatingSystem.name)
@@ -46,7 +45,9 @@ let
             (builtins.compareVersions operatingSystem.maximumVersion configuration.operatingSystem.version) >= 0
           )
         );
-      compatiblePreinstall = builtins.filter (package: isCompatible package.operatingSystem) preinstall;
+      compatiblePreinstall = lib.lists.sort (lhs: rhs: lhs.installer.priority > rhs.installer.priority) (
+        builtins.filter (package: isCompatible package.operatingSystem) preinstall
+      );
       installerType =
         package:
         let
@@ -55,8 +56,10 @@ let
         in
         if (!(builtins.isNull installer.arguments)) then
           "arguments"
-        else if (!(builtins.isNull installer.script)) then
-          "script"
+        else if (!(builtins.isNull installer.bat)) then
+          "bat"
+        else if (!(builtins.isNull installer.ps1)) then
+          "ps1"
         else if hasExtension ".msi" then
           "msi"
         else if hasExtension ".zip" then
@@ -69,14 +72,24 @@ let
           compatiblePreinstall
         else
           builtins.filter (package: (installerType package) == type) compatiblePreinstall;
-      handleInstallerType =
-        type: handler: builtins.concatStringsSep "\n" (builtins.map handler (installersByType type));
+
+      handleInstallersByType =
+        handlers:
+        common.mapLines (
+          installer:
+          let
+            type = installerType installer;
+          in
+          if builtins.hasAttr type handlers then handlers."${type}" installer else ""
+        ) compatiblePreinstall;
+
+      handleInstallers = handler: common.mapLines handler compatiblePreinstall;
 
       drivers =
         let
           operatingSystem = configuration.operatingSystem;
         in
-          common.extractWith7z {
+        common.extractWith7z {
           name = "qemu-ga-x86_64.msi";
           archive = common.virtioIso;
           paths =
@@ -169,9 +182,12 @@ let
           passes = {
             "windowsPE.bat" = ''
 
-              ${lib.optionalString ((builtins.length configuration.autounattendXml.servicesToDisable) > 0) ''
-                start /min cmd.exe /c ">x:\windowsPE.log 2>&1 ( cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs )"
-              ''}
+              ${lib.optionalString
+                ((builtins.length configuration.installation.autounattendXml.servicesToDisable) > 0)
+                ''
+                  start /min cmd.exe /c ">x:\windowsPE.log 2>&1 ( cscript.exe //E:vbscript e:\passes\windowsPE\disable-services.vbs )"
+                ''
+              }
 
               rem Disable TPM check
               reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1
@@ -278,12 +294,10 @@ let
             "windowsPE/early-registry-patches.reg" = ''
               REGEDIT4
 
-              ${builtins.concatStringsSep "\n" (
-                builtins.map (serviceName: ''
-                  [HKEY_LOCAL_MACHINE\new-SYSTEM\ControlSet001\Services\${serviceName}]
-                  "Start"=dword:00000004
-                '') configuration.autounattendXml.servicesToDisable
-              )}
+              ${common.mapLines (serviceName: ''
+                [HKEY_LOCAL_MACHINE\new-SYSTEM\ControlSet001\Services\${serviceName}]
+                "Start"=dword:00000004
+              '') configuration.installation.autounattendXml.servicesToDisable}
 
               [HKEY_LOCAL_MACHINE\new-SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System]
               "EnableFirstLogonAnimation"=dword:00000000
@@ -348,17 +362,11 @@ let
 
                 cd %USERPROFILE%\Desktop
 
-                ${handleInstallerType "arguments" (
-                  package: "e:\\extra\\${package.installer.name} ${package.installer.arguments}"
-                )}
-
-                ${handleInstallerType "script" (
-                  package: package.installer.script "e:\\extra\\${package.installer.name}"
-                )}
-
-                ${handleInstallerType "msi" (
-                  package: "msiexec /i e:\\extra\\${package.installer.name} /quiet /passive /qn"
-                )}
+                ${handleInstallersByType {
+                  arguments = package: "e:\\extra\\${package.installer.name} ${package.installer.arguments}";
+                  bat = package: package.installer.bat "e:\\extra\\${package.installer.name}";
+                  msi = package: "msiexec /i e:\\extra\\${package.installer.name} /quiet /passive /qn";
+                }}
 
                 rem Uninstall OneDrive stuff
                 OneDriveSetup.exe /uninstall
@@ -529,30 +537,16 @@ let
                 }
 
                 # Extract zips to the desktop
-                ${handleInstallerType "zip" (
-                  package: ''Extract-ZipToDesktop -zipFilePath "e:\\extra\\${package.installer.name}"''
-                )}
+                ${handleInstallersByType {
+                  zip = package: ''Extract-ZipToDesktop -zipFilePath "e:\\extra\\${package.installer.name}"'';
+                  ps1 = package: package.installer.ps1 "e:\\extra\\${package.installer.name}";
+                }}
               ''
-              (lib.optionalString debloat ''
-                Extract-ZipToDesktop -zipFilePath "e:\extra\Win11Debloat.zip"
-                $desktop = [System.Environment]::GetFolderPath('Desktop')
-                cd $desktop
-                cd .\Win11Debloat*
-                cd .\Win11Debloat*
-                # Do not create a restore point
-                $filePath = "Win11Debloat.ps1"
-                $lines = Get-Content $filePath
-                $lines | Where-Object { $_ -notmatch "Checkpoint-Computer" } | Set-Content $filePath
-                .\Win11Debloat.ps1 -RunDefaults -Silent
-
-                cd $desktop
-                Remove-Item -Recurse .\Win11Debloat*
-              '')
             ];
           };
           autounattendXML = pkgs.writeTextFile (
             let
-              config = configuration.autounattendXml;
+              config = configuration.installation.autounattendXml;
             in
             {
               name = "";
@@ -735,15 +729,11 @@ let
               '';
             }
           );
-          virtioIsoPath = pkgs.fetchurl {
-            url = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso";
-            sha256 = "sha256-4UzyuUSSw+kl8AcLp/3+3rIEjJHuqcWlr7MCMqOXYzE=";
-          };
           createFiles = (
             files:
             let
               dirs = builtins.map builtins.dirOf (builtins.attrNames files);
-              mkdirs = builtins.concatStringsSep "\n" (builtins.map (d: "mkdir -p ${d}/") dirs);
+              mkdirs = common.mapLines (d: "mkdir -p ${d}/") dirs;
 
               fileDeriv =
                 path: content:
@@ -819,14 +809,14 @@ let
           qemuDrives = [
             "file=image,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
           ]
-          ++ (lib.optionals (!(builtins.isNull configuration.iso)) [
+          ++ (lib.optionals (!(builtins.isNull configuration.installation.iso)) [
             "media=cdrom,index=2,file=unattended.iso"
-            "media=cdrom,index=0,file=${configuration.iso}"
+            "media=cdrom,index=0,file=${configuration.installation.iso}"
           ])
-          ++ (lib.optionals (!(builtins.isNull configuration.floppy)) [
-            "format=raw,if=floppy,file=${configuration.floppy},readonly=on"
+          ++ (lib.optionals (!(builtins.isNull configuration.installation.floppy)) [
+            "format=raw,if=floppy,file=${configuration.installation.floppy},readonly=on"
           ])
-          ++ (lib.optionals configuration.useEFI [
+          ++ (lib.optionals configuration.vm.useEFI [
             "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"
             "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"
           ]);
@@ -853,23 +843,21 @@ let
 
           ${
             # Do not prepare the ISO, if we're not installing from an ISO
-            lib.optionalString (!builtins.isNull configuration.iso) ''
+            lib.optionalString (!builtins.isNull configuration.installation.iso) ''
               log "Preparing unattended.iso file"
               mkdir unattended
               pushd unattended > /dev/null
 
-              ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+              ${lib.optionalString (!builtins.isNull configuration.installation.autounattendXml) ''
                 cp -a ${autounattendXML} Autounattend.xml
               ''}
 
               mkdir extra
               pushd extra > /dev/null
-              ${handleInstallerType null (
-                package: ''cp -a ${package.installer.package} ${package.installer.name}''
-              )}
+              ${handleInstallers (package: ''cp -a ${package.installer.package} ${package.installer.name}'')}
               popd > /dev/null
 
-              ${lib.optionalString (!builtins.isNull configuration.autounattendXml) ''
+              ${lib.optionalString (!builtins.isNull configuration.installation.autounattendXml) ''
                 mkdir passes
                 pushd passes > /dev/null
                 ${createFiles passes}
@@ -891,7 +879,7 @@ let
             ''
           }
 
-          ${lib.optionalString configuration.useEFI ''
+          ${lib.optionalString configuration.vm.useEFI ''
             log "Creating EFI variables file"
             cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd .
             chmod u+w OVMF_VARS.fd
@@ -946,10 +934,10 @@ let
           '')}
 
 
-          ${lib.optionalString ((builtins.length configuration.commands) > 0) ''
+          ${lib.optionalString ((builtins.length configuration.installation.commands) > 0) ''
             log "Launching script to interact with the VM via VNC"
             (
-              ${lib.concatStringsSep "\n" (builtins.map expandCommand configuration.commands)}
+              ${common.mapLines expandCommand configuration.installation.commands}
             ) &
             # No need to wait for this to terminate
           ''}
@@ -964,7 +952,7 @@ let
             -f qcow2 \
             -o compat=1.1 \
             image \
-            ${builtins.toString (min diskSize configuration.maxDiskSize)}M
+            ${builtins.toString (min diskSize configuration.vm.maxDiskSize)}M
 
           ${lib.optionalString needsSamba ''
             log "Launching samba"
@@ -1010,12 +998,12 @@ let
           ''}
 
           log "Launching QEMU"
-          qemu-system-${configuration.qemuArchitecture} \
+          qemu-system-${configuration.vm.architecture} \
             -name qemu-windows-install,process=qemu-windows-install \
             -machine q35,accel=kvm \
-            -cpu ${configuration.cpu} \
-            -smp ${builtins.toString (min cpus configuration.maxCpus)} \
-            -m ${builtins.toString (min memory configuration.maxMemory)}M \
+            -cpu ${configuration.vm.cpu} \
+            -smp ${builtins.toString (min cpus configuration.vm.maxCpus)} \
+            -m ${builtins.toString (min memory configuration.vm.maxMemory)}M \
             -monitor unix:qemu-monitor.socket,server,nowait \
             -device virtio-net,netdev=user.0 \
             -netdev 'user,id=user.0${lib.optionalString needsSamba ",guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 8445,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 8139"}' \
@@ -1036,7 +1024,7 @@ let
             wait "''${TO_WAIT[@]}"
           fi
 
-          ${lib.optionalString configuration.emitsSummary ''
+          ${lib.optionalString configuration.installation.emitsSummary ''
             log "Collecting installation summary"
             mv summary/summary.zip .
             rm -rf summary
@@ -1103,7 +1091,7 @@ let
                 test_service_state "QEMU-GA" "RUNNING"
                 test_service_available "vdservice"
 
-                for SERVICE_NAME in ${lib.escapeShellArgs configuration.autounattendXml.servicesToDisable}; do
+                for SERVICE_NAME in ${lib.escapeShellArgs configuration.installation.autounattendXml.servicesToDisable}; do
                   test_service_state "$SERVICE_NAME" "STOPPED"
                 done
 
@@ -1147,12 +1135,12 @@ let
               ''
           }
 
-          ${lib.optionalString configuration.emitsSummary ''
+          ${lib.optionalString configuration.installation.emitsSummary ''
             du -hs output/share/windows-vm/image.qcow2 >> output/share/windows-vm/summary/disk-space.txt
           ''}
 
           ${lib.optionalString recordInstallation ''
-            ${lib.optionalString configuration.emitsSummary ''
+            ${lib.optionalString configuration.installation.emitsSummary ''
               du -hs recording.mkv >> output/share/windows-vm/summary/disk-space.txt
             ''}
               mv recording.mkv output/share/windows-vm
@@ -1160,7 +1148,7 @@ let
 
           cat > output/share/windows-vm/windows.conf <<EOF
           guest_os="windows"
-          boot="${if configuration.useEFI then "efi" else "legacy"}"
+          boot="${if configuration.vm.useEFI then "efi" else "legacy"}"
           disk_img="image.qcow2"
           tpm="off"
           secureboot="off"
