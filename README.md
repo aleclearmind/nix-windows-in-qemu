@@ -22,14 +22,11 @@ Being the build deterministic, whatever is produced here, will be reproducible u
 To build the image:
 
 ```
-$ nix build .
-$ mkdir test-vm
-$ cd test-vm
-$ ../result/bin/prepare-windows-vm
-$ ls windows-vm
-image.qcow2 start stop mount windows.conf
-$ cd windows-vm
-$ ./start
+$ # The following command will install nix-portable, if necessary.
+$ ./nix build .#windows-11-25h2
+$ ./result/bin/prepare-vm
+$ cd vm
+$ ./vm start
 ```
 
 Other facts:
@@ -70,11 +67,8 @@ Other facts:
 ## TODO
 
 * [ ] Implement `nix run`.
-* [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
-* [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
-* [ ] Improve configurability of the software being preinstalled.
-* [ ] Add support for older Windows versions.
+* [ ] Add support for more Windows versions.
 * [ ] Disable firewall
 * [ ] Install SSH
 * [ ] Make images actually reproducible, byte-by-byte.

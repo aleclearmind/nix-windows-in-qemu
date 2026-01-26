@@ -117,7 +117,7 @@ typeSafeFunction {
       type = types.bool;
       default = false;
       example = false;
-      description = "If true, produces share/windows-vm/recording.mkv, i.e., a video of the installation process recorded via VNC.";
+      description = "If true, produces share/vm/recording.mkv, i.e., a video of the installation process recorded via VNC.";
     };
 
     testInstallation = mkOption {
@@ -162,6 +162,10 @@ typeSafeFunction {
                   };
                   ps1 = mkOption {
                     # TODO: a function taking the full path to the installer
+                    default = null;
+                  };
+                  test = mkOption {
+                    type = types.nullOr types.str;
                     default = null;
                   };
                 };

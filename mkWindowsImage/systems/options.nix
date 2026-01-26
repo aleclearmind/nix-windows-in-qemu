@@ -32,6 +32,45 @@ with pkgs.lib;
               type = types.submodule {
                 options = {
 
+                  network = mkOption {
+                    default = { };
+                    type = types.submodule {
+                      options = {
+
+                        model = mkOption {
+                          type = types.enum [
+                            "virtio-net"
+                            "rtl8139"
+                          ];
+                          default = "virtio-net";
+                          description = "The model for the network card to use.";
+                        };
+
+                        useIPv6 = mkOption {
+                          type = types.bool;
+                          default = true;
+                          description = "Whether to enable IPV6 on the network card or not.";
+                        };
+
+                      };
+                    };
+                  };
+
+                  useUSBKeyboard = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Whether to use a USB keyboard or not (-device usb-kbd).";
+                  };
+
+                  machine = mkOption {
+                    type = types.enum [
+                      "q35"
+                      "pc"
+                    ];
+                    default = "q35";
+                    description = "The QEMU machine to use.";
+                  };
+
                   architecture = mkOption {
                     type = types.enum [
                       "x86_64"
@@ -72,6 +111,12 @@ with pkgs.lib;
                     type = types.bool;
                     default = false;
                     description = "Whether to use EFI for this system.";
+                  };
+
+                  useVirtio = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Whether to use virtio for the disk.";
                   };
 
                 };
@@ -180,6 +225,7 @@ with pkgs.lib;
                             default = [ ];
                             description = "A list of services to disable very early on.";
                           };
+
                         };
                       }
                     );

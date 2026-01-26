@@ -15,16 +15,23 @@
       };
 
       vm = {
+        machine = "pc";
         architecture = "i386";
         cpu = "486";
         maxCpus = 1;
         maxMemory = 16;
         maxDiskSize = 150;
+        useVirtio = false;
+        useUSBKeyboard = false;
+        network = {
+          model = "rtl8139";
+          useIPv6 = false;
+        };
       };
 
       installation = {
         floppy = "${dos622}/Dos622-1.img";
-        emitSummary = false;
+        emitsSummary = false;
         commands =
           let
             dosIdle = pkgs.fetchurl {
@@ -97,11 +104,15 @@
             {
               # Can't detect "Remove disks"
               type = "sleep";
-              time = "5";
+              time = "10";
             }
             {
               type = "vncdo";
               arguments = "key enter";
+            }
+            {
+              type = "sleep";
+              time = "2";
             }
             {
               description = "Confirm reboot";

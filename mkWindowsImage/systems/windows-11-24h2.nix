@@ -1,6 +1,6 @@
 {
   pkgs,
-  fetchIso,
+  common,
   userConfiguration,
   ...
 }:
@@ -98,7 +98,7 @@ let
                   <PartitionID>3</PartitionID>
                 </ModifyPartition>
                 <!-- Windows partition -->
-                  <ModifyPartition wcm:action="add">
+                <ModifyPartition wcm:action="add">
                   <Order>4</Order>
                   <PartitionID>4</PartitionID>
                   <Label>Windows</Label>
@@ -134,16 +134,20 @@ let
   };
 in
 {
-  systems."windows-11-24h2" = windows11Post24h2 26100 (fetchIso {
-    fileName = "Win11_24H2_EnglishInternational_x64.iso";
-    hash = "sha256-1aTJfD6DXEOxuaMZMzJ8ABdmzjFGCLqRLy//yHYEQwk=";
-    productId = 3113;
-    backupUrl = "https://archive.org/download/Win11_24H2_EnglishInternational_x64/Win11_24H2_EnglishInternational_x64.iso";
-  });
-  systems."windows-11-25h2" = windows11Post24h2 26200 (fetchIso {
-    fileName = "Win11_25H2_EnglishInternational_x64.iso";
-    hash = "sha256-uq62yQ3VFkgVS2TEDJ4MFNk6Qn9hGhu0nIB3+i/3M2Q=";
-    productId = 3262;
-    backupUrl = "https://archive.org/download/win-11-25-h-2-english-international-x-64/Win11_25H2_EnglishInternational_x64.iso";
-  });
+  systems."windows-11-24h2" = windows11Post24h2 26100 (
+    common.fetchWindowsIso {
+      fileName = "Win11_24H2_EnglishInternational_x64.iso";
+      hash = "sha256-1aTJfD6DXEOxuaMZMzJ8ABdmzjFGCLqRLy//yHYEQwk=";
+      productId = 3113;
+      backupUrl = "https://archive.org/download/Win11_24H2_EnglishInternational_x64/Win11_24H2_EnglishInternational_x64.iso";
+    }
+  );
+  systems."windows-11-25h2" = windows11Post24h2 26200 (
+    common.fetchWindowsIso {
+      fileName = "Win11_25H2_EnglishInternational_x64.iso";
+      hash = "sha256-uq62yQ3VFkgVS2TEDJ4MFNk6Qn9hGhu0nIB3+i/3M2Q=";
+      productId = 3262;
+      backupUrl = "https://archive.org/download/win-11-25-h-2-english-international-x-64/Win11_25H2_EnglishInternational_x64.iso";
+    }
+  );
 }

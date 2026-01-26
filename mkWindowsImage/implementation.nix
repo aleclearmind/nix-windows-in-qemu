@@ -29,7 +29,11 @@ let
     }:
     let
       configuration = config.systems."${version}";
+
+      hasAutounattendXml = !(builtins.isNull configuration.installation.autounattendXml);
+
       needsSamba = configuration.installation.emitsSummary;
+
       isCompatible =
         operatingSystem:
         (operatingSystem.name == configuration.operatingSystem.name)
@@ -45,9 +49,11 @@ let
             (builtins.compareVersions operatingSystem.maximumVersion configuration.operatingSystem.version) >= 0
           )
         );
+
       compatiblePreinstall = lib.lists.sort (lhs: rhs: lhs.installer.priority > rhs.installer.priority) (
         builtins.filter (package: isCompatible package.operatingSystem) preinstall
       );
+
       installerType =
         package:
         let
@@ -66,6 +72,7 @@ let
           "zip"
         else
           throw "Unknown installer type for for ${installer.name}";
+
       installersByType =
         type:
         if builtins.isNull type then
@@ -85,67 +92,56 @@ let
 
       handleInstallers = handler: common.mapLines handler compatiblePreinstall;
 
-      drivers =
-        let
-          operatingSystem = configuration.operatingSystem;
-        in
-        common.extractWith7z {
-          name = "qemu-ga-x86_64.msi";
-          archive = common.virtioIso;
-          paths =
-            if operatingSystem.name == "windows" then
-              let
-                versionName = common.windowsVersionName operatingSystem.version;
-                directory =
-                  if versionName == "11" then
-                    "w11"
-                  else if versionName == "10" then
-                    "w10"
-                  else if versionName == "7" then
-                    "w7"
-                  else if versionName == "8" then
-                    "w8"
-                  else if versionName == "8.1" then
-                    "w8.1"
-                  else if versionName == "xp" then
-                    "xp"
-                  else
-                    null;
-              in
-              if !builtins.isNull directory then
-                [
-                  "Balloon/${directory}/amd64"
-                  "NetKVM/${directory}/amd64"
-                  "amd64/${directory}"
-                  "fwcfg/${directory}/amd64"
-                  "pvpanic/${directory}/amd64"
-                  "qemufwcfg/${directory}/amd64"
-                  "qemupciserial/${directory}/amd64"
-                  "smbus/${directory}/amd64"
-                  "sriov/${directory}/amd64"
-                  "viofs/${directory}/amd64"
-                  "viogpudo/${directory}/amd64"
-                  "vioinput/${directory}/amd64"
-                  "viomem/${directory}/amd64"
-                  "viorng/${directory}/amd64"
-                  "vioscsi/${directory}/amd64"
-                  "vioserial/${directory}/amd64"
-                  "viosock/${directory}/amd64"
-                  "viostor/${directory}/amd64"
-                ]
-              else
-                [ ]
-            else
-              [ ];
+      operatingSystem = configuration.operatingSystem;
 
-        };
+      driverPaths =
+        if operatingSystem.name == "windows" then
+          let
+            versionName = common.windowsVersionName operatingSystem.version;
+            directory =
+              if versionName == "11" then
+                "w11"
+              else if versionName == "10" then
+                "w10"
+              else if versionName == "7" then
+                "w7"
+              else if versionName == "8" then
+                "w8"
+              else if versionName == "8.1" then
+                "w8.1"
+              else if versionName == "xp" then
+                "xp"
+              else
+                null;
+          in
+          if !builtins.isNull directory then
+            [
+              "fwcfg/${directory}/amd64"
+              "vioinput/${directory}/amd64"
+              "vioscsi/${directory}/amd64"
+              "viostor/${directory}/amd64"
+              "vioserial/${directory}/amd64"
+              "viorng/${directory}/amd64"
+              "NetKVM/${directory}/amd64"
+              "viofs/${directory}/amd64"
+              "Balloon/${directory}/amd64"
+            ]
+          else
+            [ ]
+        else
+          [ ];
+
+      drivers = common.extractWith7z {
+        name = "qemu-ga-x86_64.msi";
+        archive = common.virtioIso;
+        paths = driverPaths;
+      };
+
     in
     pkgs.stdenv.mkDerivation {
       pname = "windows-image";
       version = "1.0";
-
       src = null;
-
       dontUnpack = true;
 
       nativeBuildInputs =
@@ -158,6 +154,10 @@ let
           vncdo
           tesseract
           cdrtools
+          jq
+          time
+          python3
+          util-linux
         ]
         ++ (lib.optionals needsSamba [
           samba
@@ -194,6 +194,7 @@ let
               rem Disable Secure Boot check
               reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1
             '';
+
             # The following script spins indefinitely during the windowsPE phase looking for hives and tampering with them.
             # This is not super elegant, but this is the only phase in which these services (in particular, Windows Defender)
             # are not running yet and self-protecting themselves from being disabled.
@@ -360,12 +361,32 @@ let
                 netsh advfirewall firewall add rule name="Open Port 3389" dir=in action=allow protocol=TCP localport=3389
                 reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
 
+                # Enable guest logon on smb
+                powershell -Command "Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force"
+                powershell -Command "Set-SmbClientConfiguration -RequireSecuritySignature $false -Force"
+
+                net use z: \\10.0.2.4\host
+
+                echo > z:\share-works
+              ''
+              (lib.optionalString (testInstallation && disableWindowsUpdate) ''
+                rem Ask Windows Updates to detect new updates
+                net start wuauserv
+                wuauclt.exe /detectnow
+                net stop wuauserv
+                net start wuauserv
+                wuauclt.exe /detectnow
+              '')
+              ''
                 cd %USERPROFILE%\Desktop
 
                 ${handleInstallersByType {
                   arguments = package: "e:\\extra\\${package.installer.name} ${package.installer.arguments}";
                   bat = package: package.installer.bat "e:\\extra\\${package.installer.name}";
                   msi = package: "msiexec /i e:\\extra\\${package.installer.name} /quiet /passive /qn";
+                  zip =
+                    package:
+                    ''"e:\tools\7-zip\7za.exe" x -y e:\\extra\\${package.installer.name} -o%USERPROFILE%\Desktop\${lib.strings.removeSuffix ".zip" package.installer.name}'';
                 }}
 
                 rem Uninstall OneDrive stuff
@@ -382,10 +403,6 @@ let
                         %windir%\microsoft.net\framework64\v4.0.30319\ngen.exe update /force /queue
                         %windir%\microsoft.net\framework64\v4.0.30319\ngen.exe executequeueditems
                 )
-              '')
-              (lib.optionalString (testInstallation && disableWindowsUpdate) ''
-                rem Ask Windows Updates to detect new updates
-                wuauclt.exe /detectnow
               '')
               ''
                 rem Shrink the image
@@ -437,6 +454,8 @@ let
                 rem "Dump Windows Update logs"
                 powershell -Command "Get-WindowsUpdateLog -ForceFlush -LogPath .\windows-update.log -Confirm:$false"
 
+                vssadmin list shadows > system-restore-points.txt
+
                 cd ..
                 )
 
@@ -445,9 +464,7 @@ let
                 move c:\windows\system32\config\windowsPE.log summary\
                 move oobeSystem.log summary\
 
-                "C:\Program Files\7-Zip\7z.exe" a summary.zip summary\
-
-                net use z: \\10.0.2.4\host
+                "e:\tools\7-zip\7za.exe" a summary.zip summary\
 
                 move summary.zip z:\
 
@@ -500,45 +517,9 @@ let
               "UseWUServer"=dword:00000001
             '';
             "oobeSystem/oobeSystem.ps1" = builtins.concatStringsSep "\n" [
+              # TODO: create file for each one of this and handle this with msi, bat and the others.
               ''
-                # Enable guest logon on smb
-                Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force
-                Set-SmbClientConfiguration -RequireSecuritySignature $false -Force
-              ''
-              ''
-                function Extract-ZipToDesktop {
-                    param(
-                        [string]$zipFilePath
-                    )
-
-                    # Check if the file exists
-                    if (-Not (Test-Path -Path $zipFilePath)) {
-                        Write-Host "The file does not exist: $zipFilePath"
-                        return
-                    }
-
-                    # Get the file name without the .zip extension
-                    $fileName = [System.IO.Path]::GetFileNameWithoutExtension($zipFilePath)
-
-                    # Set the destination folder on the desktop
-                    $desktopPath = [System.Environment]::GetFolderPath('Desktop')
-                    $destinationFolder = Join-Path -Path $desktopPath -ChildPath $fileName
-
-                    # Create the destination folder if it does not exist
-                    if (-Not (Test-Path -Path $destinationFolder)) {
-                        New-Item -ItemType Directory -Path $destinationFolder
-                    }
-
-                    # Extract the zip file to the destination folder
-                    Write-Host "Extracting '$zipFilePath' to '$destinationFolder'"
-                    Expand-Archive -Path $zipFilePath -DestinationPath $destinationFolder
-
-                    Write-Host "Extraction complete."
-                }
-
-                # Extract zips to the desktop
                 ${handleInstallersByType {
-                  zip = package: ''Extract-ZipToDesktop -zipFilePath "e:\\extra\\${package.installer.name}"'';
                   ps1 = package: package.installer.ps1 "e:\\extra\\${package.installer.name}";
                 }}
               ''
@@ -601,9 +582,22 @@ let
                                publicKeyToken="31bf3856ad364e35"
                                versionScope="nonSxS">
                       <DriverPaths>
-                        <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-                          <Path>e:\drivers</Path>
-                        </PathAndCredentials>
+                        ${common.mapLines
+                          (
+                            { index, path }:
+                            ''
+                              <PathAndCredentials wcm:action="add" wcm:keyValue="${builtins.toString index}">
+                                <Path>e:\drivers\${lib.replaceString "/" "\\" path}</Path>
+                              </PathAndCredentials>
+                            ''
+                          )
+                          (
+                            lib.imap1 (index: path: {
+                              index = index;
+                              path = path;
+                            }) driverPaths
+                          )
+                        }
                       </DriverPaths>
                     </component>
                     <component xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
@@ -755,7 +749,7 @@ let
           expandCommand =
             action:
             (
-              if action ? description then
+              if action ? description && (builtins.stringLength action.description) > 0 then
                 ''
                   echo "${action.description}"
                 ''
@@ -765,7 +759,7 @@ let
             + (
               let
                 qemuCommand = command: ''
-                  echo "${command}" | socat - unix-connect:qemu-monitor.socket >& /dev/null
+                  echo "${command}" | socat - unix-connect:vm-working-directory/qemu-monitor.socket >& /dev/null
                 '';
                 vncDo = command: "vncdo --server 127.0.0.1::5900 ${command} >& /dev/null";
               in
@@ -776,7 +770,10 @@ let
                     sleep ${builtins.toString action.time}
                   ''
                 else if action.type == "vncdo" then
-                  "${vncDo action.arguments}"
+                  ''
+                    echo "Running vncdo ${action.arguments}"
+                    ${vncDo action.arguments}
+                  ''
                 else if action.type == "change-floppy" then
                   ''
                     echo "Setting floppy to ${action.path}"
@@ -795,8 +792,7 @@ let
                         while ! grep --quiet -i "${action.text}" image.txt >& /dev/null; do
                             rm -f image.txt image.png
                             if ${vncDo "capture image.png"}; then
-                                tesseract image.png image
-                                cat image.txt
+                                tesseract image.png image >& /dev/null
                             fi
                         done
                         rm image.txt
@@ -806,8 +802,8 @@ let
                   (throw "Unknown command ${action.type}")
               )
             );
-          qemuDrives = [
-            "file=image,if=virtio,cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
+          installDrives = [
+            "file=image${lib.optionalString configuration.vm.useVirtio ",if=virtio"},cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
           ]
           ++ (lib.optionals (!(builtins.isNull configuration.installation.iso)) [
             "media=cdrom,index=2,file=unattended.iso"
@@ -815,11 +811,530 @@ let
           ])
           ++ (lib.optionals (!(builtins.isNull configuration.installation.floppy)) [
             "format=raw,if=floppy,file=${configuration.installation.floppy},readonly=on"
-          ])
-          ++ (lib.optionals configuration.vm.useEFI [
-            "if=pflash,format=raw,unit=0,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd,readonly=on"
-            "if=pflash,format=raw,unit=1,file=./OVMF_VARS.fd"
           ]);
+          runQemuScript =
+            {
+              drives,
+              extraArguments ? [ ],
+              useSpice ? false,
+              background ? false,
+            }:
+            let
+              allDrives =
+                drives
+                ++ (lib.optionals configuration.vm.useEFI [
+                  "if=pflash,format=raw,unit=0,file=$SCRIPT_DIR/efi/OVMF_CODE.fd,readonly=on"
+                  "if=pflash,format=raw,unit=1,file=$SCRIPT_DIR/efi/OVMF_VARS.fd"
+                ]);
+            in
+            ''
+              SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+              set -euo pipefail
+
+              WORKING_DIRECTORY="$SCRIPT_DIR/vm-working-directory"
+
+              SHARE="$SCRIPT_DIR/share"
+
+              function log() {
+                echo "$1" > /dev/stderr
+              }
+
+              function fail() {
+                log "$1"
+                exit 1
+              }
+
+              function ensure-command() {
+                COMMAND="$1"
+                shift
+                if ! command -v "$COMMAND" > /dev/null; then
+                  fail "$COMMAND not available"
+                fi
+              }
+
+              function wait-for() {
+                while ! "$@" >& /dev/null; do
+                  sleep 0.5
+                done
+              }
+
+              function available-port() {
+                python -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
+              }
+
+              if test -e "$WORKING_DIRECTORY"; then
+                PID_FILE="$WORKING_DIRECTORY/qemu.pid"
+                if test -e "$PID_FILE" && test -e /proc/"$(cat $PID_FILE)"; then
+                  fail "The VM seems to be already running"
+                else
+                  fail "It seems like $WORKING_DIRECTORY is stale"
+                fi
+              fi
+
+              mkdir -p "$WORKING_DIRECTORY"
+
+              ensure-command qemu-system-${configuration.vm.architecture}
+
+              ${lib.optionalString useSpice ''
+                ensure-command spicy
+                ensure-command nc
+              ''}
+
+              ${lib.optionalString (needsSamba || useSpice) ''
+                ensure-command python
+              ''}
+
+              ${lib.optionalString needsSamba ''
+                SAMBA_PORT1=$(available-port)
+                SAMBA_PORT2=$(available-port)
+
+                if ! command -v smbd > /dev/null; then
+                  log "Warning: smbd not available, disabling the share"
+                else
+                  log "Launching samba"
+
+                  (
+                    # We need to cd or samba will complain about file names too long
+                    SHARE=$(realpath "$SHARE")
+                    mkdir -p "$SHARE"
+                    cd "$WORKING_DIRECTORY"
+                    mkdir -p smb
+                    mkdir -p smb/private
+
+                    cat > smb/smb.conf <<EOF
+                [global]
+                interfaces=127.0.0.1
+                bind interfaces only=yes
+                pid directory=smb
+                lock directory=smb
+                state directory=smb
+                cache directory=smb
+                ncalrpc dir=smb/ncalrpc
+                smb passwd file=smb/smbpasswd
+                private dir=smb/private
+                log file=smb/smbd.log
+                security = user
+                map to guest = Bad User
+                load printers = no
+                printing = bsd
+                disable spoolss = yes
+                usershare max shares = 0
+                smb ports = $SAMBA_PORT1, $SAMBA_PORT2
+
+                [host]
+                path=$SHARE
+                read only=no
+                guest ok=yes
+                force user=''${USER:-nixbld}
+                EOF
+
+                    smbd --daemon --debuglevel 1 --configfile="smb/smb.conf" >& /dev/null
+                  )
+                fi
+              ''}
+
+              ${lib.optionalString useSpice ''
+                SPICE_PORT=$(available-port)
+                echo "$SPICE_PORT" > "$WORKING_DIRECTORY"/spice-port
+
+                (
+                  wait-for nc -z -w 1 127.0.0.1 "$SPICE_PORT"
+
+                  spicy \
+                    --title "VM" \
+                    --port "$SPICE_PORT" \
+                    --spice-shared-dir "$SHARE" >& /dev/null
+                ) &
+              ''}
+
+              log "Launching QEMU"
+              ${lib.optionalString (!background) ''
+                # We exec so `time` collects data about the correct process
+
+                TO_WAIT="$$"
+                (
+                  cd /
+                  waitpid "$TO_WAIT"
+                  rm -rf "$WORKING_DIRECTORY"
+                ) &
+
+                exec \
+              ''}
+                qemu-system-${configuration.vm.architecture} \
+                -name qemu-windows-install,process=qemu-windows-install \
+                -machine ${configuration.vm.machine},hpet=off,smm=on,vmport=off,accel=kvm \
+                -global kvm-pit.lost_tick_policy=discard \
+                -global ICH9-LPC.disable_s3=1 \
+                -cpu host,+hypervisor,+invtsc,l3-cache=on,migratable=no,hv_passthrough \
+                ${lib.optionalString configuration.vm.useVirtio ''-device virtio-balloon''} \
+                -rtc base=localtime,clock=host,driftfix=slew \
+                -cpu ${configuration.vm.cpu} \
+                -smp ${builtins.toString (min cpus configuration.vm.maxCpus)} \
+                -m ${builtins.toString (min memory configuration.vm.maxMemory)}M \
+                -monitor unix:"$(realpath --relative-to="$PWD" "$WORKING_DIRECTORY/qemu-monitor.socket")",server,nowait \
+                -pidfile "$WORKING_DIRECTORY/qemu.pid" \
+                \
+                -netdev "user,id=user.0${lib.optionalString needsSamba '',guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 $SAMBA_PORT1,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 $SAMBA_PORT2''}${lib.optionalString configuration.vm.network.useIPv6 '',ipv6=off''}" \
+                -device ${configuration.vm.network.model},netdev=user.0 \
+                ${lib.optionalString useSpice ''
+                  -vga none \
+                  -display none \
+                  -device qxl-vga,xres=1280,yres=800,ram_size=65536,vram_size=65536,vgamem_mb=64 \
+                  ${lib.optionalString configuration.vm.useVirtio ''
+                    -device virtio-serial-pci \
+                    \
+                    -chardev socket,id=agent0,path="$(realpath --relative-to="$PWD" "$WORKING_DIRECTORY/qemu-agent.socket")",server=on,wait=off \
+                    -device virtserialport,chardev=agent0,name=org.qemu.guest_agent.0 \
+                    \
+                    -chardev spicevmc,id=vdagent0,name=vdagent \
+                    -device virtserialport,chardev=vdagent0,name=com.redhat.spice.0 \
+                    \
+                    -chardev spiceport,id=webdav0,name=org.spice-space.webdav.0 \
+                    -device virtserialport,chardev=webdav0,name=org.spice-space.webdav.0 \
+                  ''} \
+                  -spice disable-ticketing=on,port="$SPICE_PORT",addr=127.0.0.1 \
+                  -device qemu-xhci,id=spicepass \
+                  \
+                  -chardev spicevmc,id=usbredirchardev1,name=usbredir \
+                  -device usb-redir,chardev=usbredirchardev1,id=usbredirdev1 \
+                  \
+                  -chardev spicevmc,id=usbredirchardev2,name=usbredir \
+                  -device usb-redir,chardev=usbredirchardev2,id=usbredirdev2 \
+                  \
+                  -chardev spicevmc,id=usbredirchardev3,name=usbredir \
+                  -device usb-redir,chardev=usbredirchardev3,id=usbredirdev3 \
+                  \
+                  -device pci-ohci,id=smartpass \
+                  -device usb-ccid \
+                  \
+                  -chardev spicevmc,id=ccid,name=smartcard \
+                  -device ccid-card-passthru,chardev=ccid \
+                  \
+                  -device usb-ehci,id=input \
+                  -k en-us \
+                  ${lib.optionalString configuration.vm.useUSBKeyboard ''
+                    -device usb-kbd,bus=input.0 \
+                    -device usb-tablet,bus=input.0 \
+                  ''} \
+                ''} \
+                ${lib.escapeShellArgs extraArguments} \
+                ${
+                  builtins.concatStringsSep " \\\n" (
+                    builtins.map (
+                      # Do not escape, we want to use $SCRIPT_DIR
+                      entry: ''-drive "${entry}"''
+                    ) allDrives
+                  )
+                } \
+                "$@" \
+              ${lib.optionalString background ''
+                &
+
+                TO_WAIT="$!"
+                (
+                  cd /
+                  waitpid "$TO_WAIT"
+                  rm -rf "$WORKING_DIRECTORY"
+                ) &
+              ''}
+
+              # Do not do anything here! We exec'd!
+            '';
+          vmCommandBuilder =
+            options:
+            let
+              mapCommands =
+                handler: common.mapLines (name: handler name options.${name}) (builtins.attrNames options);
+            in
+            pkgs.writeTextFile {
+              name = name;
+              executable = true;
+              text = ''
+                #!/usr/bin/env bash
+
+                SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+                set -euo pipefail
+
+                PID_FILE="$SCRIPT_DIR/vm-working-directory/qemu.pid"
+
+                function log() {
+                  echo "$1" > /dev/stderr
+                }
+
+                function fail() {
+                  log "$1"
+                  exit 1
+                }
+
+                function qemu-monitor() {
+                  (
+                    # Socket names have a maximum length of 108 bytes
+                    cd "$SCRIPT_DIR/vm-working-directory"
+                    socat - unix-connect:./qemu-monitor.socket
+                  )
+                }
+
+                usage() {
+                  cat <<EOF
+                Usage: $0 <command> [options]
+
+                Commands:
+
+                ${mapCommands (
+                  name: command:
+                  name + (lib.strings.replicate (12 - (builtins.stringLength name)) " ") + command.description
+                )}
+                EOF
+                }
+
+                ${mapCommands (
+                  name: command:
+                  let
+                    waitForExit = if builtins.hasAttr "waitForExit" command then command.waitForExit else false;
+                    mustBeRunning =
+                      if builtins.hasAttr "mustBeRunning" command then
+                        command.mustBeRunning
+                      else if waitForExit then
+                        "yes"
+                      else
+                        "dontcare";
+                    requirements = command.requirements ++ (lib.optionals waitForExit [ "waitpid" ]);
+                  in
+                  ''
+                    function ${name}() {
+                    ${common.mapLines (requirement: ''
+                      if ! command -v "${requirement}" > /dev/null; then
+                        fail "${requirement} not available"
+                      fi
+                    '') requirements}
+
+                    ${lib.optionalString (mustBeRunning == "yes") ''
+                      if ! test -e "$PID_FILE"; then
+                        log "No PID file found"
+                        fail "The VM is not running."
+                      fi
+
+                      PID=$(cat "$PID_FILE")
+                      if ! test -e /proc/"$PID"; then
+                        fail "PID $PID does not exist. The VM is not running."
+                      fi
+                    ''}
+
+                    ${lib.optionalString (mustBeRunning == "no") ''
+                      if test -e "$PID_FILE"; then
+                        PID=$(cat "$PID_FILE")
+                        if test -e /proc/"$PID"; then
+                          fail "PID $PID is running. The VM is running."
+                        else
+                          fail "Stale PID file found."
+                        fi
+                      fi
+                    ''}
+
+                    ${command.body}
+
+                    ${lib.optionalString waitForExit ''
+                      log "Waiting for QEMU process to terminate ($PID)"
+                      waitpid "$PID"
+                    ''}
+                    }
+                  ''
+                )}
+
+                function main() {
+
+                  if test "$#" -lt 1; then
+                    usage
+                    exit
+                  fi
+
+                  local command="$1"
+                  shift
+
+                  case "$command" in
+                  ${mapCommands (
+                    name: command: ''
+                      ${name})
+                        ${name} "$@"
+                        exit 0
+                        ;;
+                    ''
+                  )}
+                    *)
+                      echo "Unknown command: $command" >&2
+                      usage
+                      exit 1
+                      ;;
+                  esac
+                }
+
+                main "$@"
+              '';
+            };
+          vmCommand = vmCommandBuilder {
+
+            start = {
+              description = "Start the VM.";
+              mustBeRunning = "no";
+              requirements = [ "kill" ];
+              body =
+                "(\n"
+                + (runQemuScript {
+                  drives = [
+                    "file=$SCRIPT_DIR/image.qcow2${lib.optionalString configuration.vm.useVirtio ",if=virtio"},cache=writeback,discard=unmap,detect-zeroes=unmap,format=qcow2"
+                  ];
+                  useSpice = true;
+                  background = true;
+                })
+                + "\n)";
+            };
+
+            kill = {
+              description = "Kill the QEMU process.";
+              waitForExit = true;
+              requirements = [ "kill" ];
+              body = ''
+                log "Killing $PID"
+                $(which kill) "$@" "$PID"
+              '';
+            };
+
+            poweroff = {
+              description = "Send the VM a request for shutdown (QEMU's system_powerdown command).";
+              waitForExit = true;
+              requirements = [ "socat" ];
+              body = ''
+                log "Sending system_powerdown command to QEMU"
+                echo "system_powerdown" | qemu-monitor >& /dev/null
+              '';
+            };
+
+            quit = {
+              description = "Ask QEMU to quit now (QEMU's quit command).";
+              waitForExit = true;
+              requirements = [ "socat" ];
+              body = ''
+                log "Sending quit command to QEMU"
+                echo "quit" | qemu-monitor >& /dev/null
+              '';
+            };
+
+            reset = {
+              description = "Reset the VM (QEMU's reset command).";
+              mustBeRunning = "yes";
+              requirements = [ "socat" ];
+              body = ''
+                log "Sending system_powerdown command to QEMU"
+                echo "system_reset" | qemu-monitor >& /dev/null
+              '';
+            };
+
+            monitor = {
+              description = "Connect to the QEMU monitor";
+              mustBeRunning = "yes";
+              requirements = [ "socat" ];
+              body = ''
+                qemu-monitor
+              '';
+            };
+
+            status = {
+              description = "Shows the status of the vm";
+              mustBeRunning = "yes";
+              requirements = [ ];
+              body = ''
+                log "The VM is running"
+              '';
+            };
+
+            ui = {
+              description = "Connect to the VM via spice.";
+              mustBeRunning = "yes";
+              requirements = [ "spicy" ];
+              body = ''
+                spicy \
+                  --title "VM" \
+                  --port "$(cat "$SCRIPT_DIR/vm-working-directory/spice-port")" \
+                  --spice-shared-dir "$SCRIPT_DIR/share" \
+                  "$@" \
+                  >& /dev/null &
+              '';
+            };
+
+            mount = {
+              description = "Mount the VM image";
+              mustBeRunning = "no";
+              requirements = [
+                "modprobe"
+                "qemu-nbd"
+                "mount"
+                "mountpoint"
+                "umount"
+                "sed"
+                "file"
+                "ls"
+              ];
+              body = ''
+                function find_free_nbd_device() {
+                    for INDEX in $(seq 0 15); do
+                        if ! test -e /sys/class/block/nbd"$INDEX"/pid; then
+                            echo "$INDEX"
+                            return
+                        fi
+                    done
+
+                    fail "No /dev/nbd device available!"
+                }
+
+                if test "$(id -u)" -ne 0; then
+                    fail "Run this command as root"
+                fi
+
+                if ! test -e /dev/nbd0; then
+                    log ""
+                    modprobe nbd
+                fi
+
+                NBD_DEVICE="/dev/nbd$(find_free_nbd_device)"
+                log "Exposing image.qcow2 to $NBD_DEVICE"
+                qemu-nbd --connect "$NBD_DEVICE" -f qcow2 "image.qcow2"
+
+                log "Waiting for partitions to be recognized"
+                sleep 1
+
+                shopt -s nullglob
+
+                for PARTITION in "$NBD_DEVICE"p*; do
+                    SUFFIX=$(echo "$PARTITION" | sed 's|'"$NBD_DEVICE"'||')
+                    mkdir -p "$SUFFIX"
+                    log "Mounting read-only $PARTITION to $SUFFIX"
+                    if ! $(which mount) -o ro "$PARTITION" "$SUFFIX" >& /dev/null; then
+                        log "Couldn't mount $PARTITION: $(file -s "$PARTITION")"
+                    fi
+                done
+
+                log "Press any key to unmount"
+                read
+
+                qemu-nbd --disconnect "$NBD_DEVICE" >& /dev/null
+
+                for PARTITION in "$NBD_DEVICE"p*; do
+                    SUFFIX=$(echo "$PARTITION" | sed 's|'"$NBD_DEVICE"'||')
+                    log "Removing $SUFFIX"
+                    if mountpoint "$SUFFIX" >& /dev/null; then
+                        umount "$SUFFIX"
+                    fi
+                    rmdir "$SUFFIX"
+                done
+
+                log "All done"
+              '';
+
+            };
+
+          };
+
         in
         ''
           set -euo pipefail
@@ -841,6 +1356,17 @@ let
             return 0
           }
 
+          function time-task() {
+            OUTPUT_FILE="$1"
+            shift
+
+            "time" \
+              -f '{"exit_code": %x, "time_user_seconds": %U, "time_system_seconds": %S, "time_wall_clock_seconds": %e, "rss_max_kbytes": %M, "rss_avg_kbytes": %t, "page_faults_major": %F, "page_faults_minor": %R, "io_inputs": %I, "io_outputs": %O, "context_switches_voluntary": %w, "context_switches_involuntary": %c, "cpu_percentage": "%P", "signals_received": %k}' \
+              --output >(jq > "$OUTPUT_FILE") \
+              "$@"
+
+          }
+
           ${
             # Do not prepare the ISO, if we're not installing from an ISO
             lib.optionalString (!builtins.isNull configuration.installation.iso) ''
@@ -848,7 +1374,7 @@ let
               mkdir unattended
               pushd unattended > /dev/null
 
-              ${lib.optionalString (!builtins.isNull configuration.installation.autounattendXml) ''
+              ${lib.optionalString hasAutounattendXml ''
                 cp -a ${autounattendXML} Autounattend.xml
               ''}
 
@@ -857,7 +1383,7 @@ let
               ${handleInstallers (package: ''cp -a ${package.installer.package} ${package.installer.name}'')}
               popd > /dev/null
 
-              ${lib.optionalString (!builtins.isNull configuration.installation.autounattendXml) ''
+              ${lib.optionalString hasAutounattendXml ''
                 mkdir passes
                 pushd passes > /dev/null
                 ${createFiles passes}
@@ -872,6 +1398,22 @@ let
               cp -ar "${drivers}/"* .
               popd > /dev/null
 
+              mkdir tools
+              pushd tools > /dev/null
+
+              mkdir 7-zip > /dev/null
+              pushd 7-zip > /dev/null
+              quiet 7z x ${
+                pkgs.fetchurl {
+                  url = "https://www.7-zip.org/a/7z2501-extra.7z";
+                  sha256 = "sha256-zTzzgIXCzGg5z3Jxba+zF1rkJfT9NPqvxsC2TWGNMH8=";
+                }
+              } x64
+              mv x64/* .
+              popd > /dev/null
+
+              popd > /dev/null
+
               popd > /dev/null
 
               log "Assembling unattended.iso"
@@ -881,8 +1423,10 @@ let
 
           ${lib.optionalString configuration.vm.useEFI ''
             log "Creating EFI variables file"
-            cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd .
-            chmod u+w OVMF_VARS.fd
+            mkdir efi
+            cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd efi/
+            cp ${pkgs.OVMF.fd}/FV/OVMF_CODE.fd efi/
+            chmod u+w efi/OVMF_VARS.fd
           ''}
 
           TO_WAIT=()
@@ -942,11 +1486,16 @@ let
             # No need to wait for this to terminate
           ''}
 
-          mkdir -p output/share/windows-vm
+          mkdir -p output/share/vm
           mkdir summary
+
+          mkdir timing
+
+          cp ${vmCommand} asdf
 
           log "Preparing disk image"
           quiet \
+            time-task "timing/image-creation.json" \
             qemu-img \
             create \
             -f qcow2 \
@@ -954,70 +1503,20 @@ let
             image \
             ${builtins.toString (min diskSize configuration.vm.maxDiskSize)}M
 
-          ${lib.optionalString needsSamba ''
-            log "Launching samba"
-            (
-              mkdir -p /build/smb
-              mkdir -p /build/smb/private
-              smbd --daemon --debuglevel 1 --configfile=${
-                pkgs.writeTextFile {
-                  name = "smb.conf";
-                  text = ''
-                    [global]
-                    interfaces=127.0.0.1
-                    bind interfaces only=yes
-                    pid directory=/build/smb
-                    lock directory=/build/smb
-                    state directory=/build/smb
-                    cache directory=/build/smb
-                    ncalrpc dir=/build/smb/ncalrpc
-                    smb passwd file=/build/smb/smbpasswd
-                    private dir=/build/smb/private
-                    log file=/build/smb/smbd.log
-                    security = user
-                    map to guest = Bad User
-                    load printers = no
-                    printing = bsd
-                    disable spoolss = yes
-                    usershare max shares = 0
-                    smb ports = 8445, 8139
+          # The script does things relative to its path, it's important to copy it
+          cp -a ${
+            pkgs.writeShellScript "run-qemu" (runQemuScript {
+              drives = installDrives;
+              extraArguments = [
+                "-vnc"
+                "127.0.0.1:0"
+                "-boot"
+                "once=d"
+              ];
+            })
+          } install
 
-                    [host]
-                    path=/build/summary
-                    read only=no
-                    guest ok=yes
-                    force user=nixbld
-                  '';
-                }
-              } >& /dev/null
-
-              # In case of debugging:
-              # tail -f /build/smb/smbd.log
-            ) &
-            # No need to wait for this to terminate
-          ''}
-
-          log "Launching QEMU"
-          qemu-system-${configuration.vm.architecture} \
-            -name qemu-windows-install,process=qemu-windows-install \
-            -machine q35,accel=kvm \
-            -cpu ${configuration.vm.cpu} \
-            -smp ${builtins.toString (min cpus configuration.vm.maxCpus)} \
-            -m ${builtins.toString (min memory configuration.vm.maxMemory)}M \
-            -monitor unix:qemu-monitor.socket,server,nowait \
-            -device virtio-net,netdev=user.0 \
-            -netdev 'user,id=user.0${lib.optionalString needsSamba ",guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 8445,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 8139"}' \
-            -vnc 127.0.0.1:0 \
-            -boot once=d \
-            ${builtins.concatStringsSep " \\\n" (
-              builtins.map (
-                entry:
-                lib.escapeShellArgs [
-                  "-drive"
-                  entry
-                ]
-              ) qemuDrives
-            )}
+          time-task "timing/install.json" bash ./install
 
           if test "''${#TO_WAIT[@]}" -gt 0; then
             log "Waiting for ''${#TO_WAIT[@]} jobs"
@@ -1026,10 +1525,12 @@ let
 
           ${lib.optionalString configuration.installation.emitsSummary ''
             log "Collecting installation summary"
-            mv summary/summary.zip .
-            rm -rf summary
+            mv share/summary.zip .
+            rm -rf share
 
             unzip -q summary.zip
+
+            mv timing summary/
 
             cd summary
 
@@ -1088,95 +1589,92 @@ let
                     test "$(grep "$WHAT" "$WHERE" | wc -l)" -ge 1
                 }
 
-                test_service_state "QEMU-GA" "RUNNING"
-                test_service_available "vdservice"
+                function file_exists() {
+                  DRIVE="$1"
+                  shift
+                  TARGET_PATH="$1"
+                  shift
 
-                for SERVICE_NAME in ${lib.escapeShellArgs configuration.installation.autounattendXml.servicesToDisable}; do
-                  test_service_state "$SERVICE_NAME" "STOPPED"
-                done
+                  test_check \
+                    "Checking if $TARGET_PATH exists in $DRIVE" \
+                    test "$(grep -i "$TARGET_PATH" file-lists/"$DRIVE".txt | wc -l)" -ge 1
+                }
 
-                test_log_contains oobeSystem.log "Win11Debloat Script"
-                test_log_contains oobeSystem.log "Script completed! Please check above for any errors."
+                test_log_contains windowsPE.log "All done!"
+
+                ${lib.optionalString hasAutounattendXml ''
+                  for SERVICE_NAME in ${lib.escapeShellArgs configuration.installation.autounattendXml.servicesToDisable}; do
+                    test_service_state "$SERVICE_NAME" "STOPPED"
+                  done
+                ''}
+
+                ${handleInstallers (
+                  package: if !builtins.isNull package.installer.test then package.installer.test else ""
+                )}
 
                 ${lib.optionalString disableWindowsUpdate ''
                   test_log_contains windows-update.log "127.6.6.6"
                 ''}
 
-                test_log_contains windowsPE.log "All done!"
-
-                # TODO: test installed programs are available
+                test_log_contains system-restore-points.txt "No items found"
 
                 exit "$RESULT"
-              ''} |& tee test-results.log''}
+              ''}  |& tee test-results.log''}
 
             cd ..
 
-            mv summary output/share/windows-vm/
+            mv summary output/share/vm/
 
-            du -hs . >> output/share/windows-vm/summary/disk-space.txt
-            du -hs image >> output/share/windows-vm/summary/disk-space.txt
+            du -hs . >> output/share/vm/summary/disk-space.txt
+            du -hs image >> output/share/vm/summary/disk-space.txt
           ''}
 
           ${
             if compressDiskImage then
               ''
                 log "Rewriting disk image to compress it"
-                qemu-img \
+                time-task "timing/compress.json" \
+                  qemu-img \
                   convert \
                   -c \
                   -o compat=1.1 \
                   -O qcow2 \
                   image \
-                  output/share/windows-vm/image.qcow2
+                  output/share/vm/image.qcow2
               ''
             else
               ''
-                mv image output/share/windows-vm/image.qcow2
+                mv image output/share/vm/image.qcow2
               ''
           }
 
           ${lib.optionalString configuration.installation.emitsSummary ''
-            du -hs output/share/windows-vm/image.qcow2 >> output/share/windows-vm/summary/disk-space.txt
+            du -hs output/share/vm/image.qcow2 >> output/share/vm/summary/disk-space.txt
           ''}
 
           ${lib.optionalString recordInstallation ''
             ${lib.optionalString configuration.installation.emitsSummary ''
-              du -hs recording.mkv >> output/share/windows-vm/summary/disk-space.txt
+              du -hs recording.mkv >> output/share/vm/summary/disk-space.txt
             ''}
-              mv recording.mkv output/share/windows-vm
+              mv recording.mkv output/share/vm
           ''}
 
-          cat > output/share/windows-vm/windows.conf <<EOF
-          guest_os="windows"
-          boot="${if configuration.vm.useEFI then "efi" else "legacy"}"
-          disk_img="image.qcow2"
-          tpm="off"
-          secureboot="off"
-          EOF
+          mkdir output/share/vm/share
+          touch output/share/vm/share/THIS-DIRECTORY-IS-SHARED-WITH-THE-HOST
 
-          cp -a ${pkgs.writeShellScript "start" ''
-            SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-            set -euo pipefail
-            cd "$SCRIPT_DIR"
-            ${lib.getExe pkgs.quickemu} --vm windows.conf --display spice
-          ''} output/share/windows-vm/start
+          ${lib.optionalString configuration.vm.useEFI ''
+            mv efi/ output/share/vm/
+          ''}
 
-          cp -a ${pkgs.writeShellScript "stop" ''
-            SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-            set -euo pipefail
-            cd "$SCRIPT_DIR"
-            ${lib.getExe pkgs.quickemu} --vm windows.conf --kill
-          ''} output/share/windows-vm/stop
-
-          cp -a ${./scripts/mount} output/share/windows-vm/mount
+          cp -a ${vmCommand} output/share/vm/vm
 
           mkdir -p output/bin
-          cp -a ${pkgs.writeShellScript "prepare-windows-vm" ''
+          cp -a ${pkgs.writeShellScript "prepare-vm" ''
             SCRIPT_DIR=$( cd -- "$( dirname -- "''${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
             set -euo pipefail
-            cp -ar --reflink=auto "$SCRIPT_DIR/../share/windows-vm" .
-            chmod u+w --recursive windows-vm
-          ''} output/bin/prepare-windows-vm
+            cp -ar --reflink=auto "$SCRIPT_DIR/../share/vm" .
+            chmod u+w --recursive vm
+          ''} output/bin/prepare-vm
 
           log "All done!"
         '';

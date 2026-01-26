@@ -34,6 +34,8 @@ in
       package = spiceGuestToolsInstaller;
       name = "spice-guest-tools.exe";
       arguments = "/S";
+
+      test = ''test_service_available vdservice'';
     };
 
     # https://github.com/utmapp/spice-nsis/blob/main/win-guest-tools.nsis
@@ -49,6 +51,7 @@ in
         sha256 = "sha256-LeTdpx0AcwhEl0d0wsZMzHyqV6Nd5O7D2Cq99+UGyNI=";
       };
       name = "npp.Installer.x64.msi";
+      test = ''file_exists C "notepad++\.exe"'';
     };
 
     # https://github.com/notepad-plus-plus/notepad-plus-plus/blob/master/SUPPORTED_SYSTEM.md
@@ -64,6 +67,7 @@ in
         sha256 = "sha256-UP7K8R0LqJzxbdQeZTzaQJzclNKaeS9wDZ3EWrUxPi0=";
       };
       name = "chocolatey.msi";
+      test = ''file_exists C choco\.exe'';
     };
 
     # https://community.chocolatey.org/courses/getting-started/requirements
@@ -79,6 +83,7 @@ in
         sha256 = "sha256-NdtophOHSi6MFCLrDqeGH4JfxxcX1G2r8fJJzpY0tPE=";
       };
       name = "depends_x64.zip";
+      test = ''file_exists C depends\.exe'';
     };
 
     # https://www.dependencywalker.com/
@@ -95,6 +100,7 @@ in
         sha256 = "sha256-oOzkxS7pxxw8AgOCRdPgs8YVD/8OJr1734gvx+5Uz2k=";
       };
       name = "SysinternalsSuite.zip";
+      test = ''file_exists C Procmon\.exe'';
     };
 
     # TODO: check
@@ -110,6 +116,7 @@ in
         sha256 = "sha256-fSLcAPHAn9RBXUitdNHPgBiT6DuaOZRLD85t6nzq6pk=";
       };
       name = "Dependencies_x64_Release.zip";
+      test = ''file_exists C DependenciesGui\.exe'';
     };
 
     # Before Windows 8 you can use dependencyWalker
@@ -126,6 +133,7 @@ in
       };
       name = "Git-64-bit.exe";
       arguments = ''/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS="icons,ext\reg\shellhere,assoc,assoc_sh"'';
+      test = ''file_exists C "bin\\\\git\.exe"'';
     };
 
     # https://gitforwindows.org/requirements.html
@@ -142,6 +150,7 @@ in
       };
       name = "systeminformer-release-setup.exe";
       arguments = "-silent";
+      test = ''file_exists C SystemInformer\.exe'';
     };
 
     # https://systeminformer.sourceforge.io/readme
@@ -158,6 +167,7 @@ in
       };
       name = "firefox-installer.exe";
       arguments = "/S";
+      test = ''file_exists C firefox\.exe'';
     };
 
     # https://www.firefox.com/en-US/firefox/146.0.1/system-requirements/
@@ -179,6 +189,7 @@ in
         start /wait chromium-installer.exe
         del chromium-installer.exe
       '';
+      test = ''file_exists C "Chromium\\\\Application\\\\chrome\.exe"'';
     };
 
     # https://chromium.googlesource.com/chromium/src/+/main/docs/windows_build_instructions.md
@@ -194,6 +205,7 @@ in
         sha256 = "sha256-W/8tukbHGDi4lm00C6NqGB+wDM1cvaRZADcR64B2jIk=";
       };
       name = "Everything.x64.msi";
+      test = ''file_exists C Everything\.exe'';
     };
 
     # https://www.voidtools.com/faq/
@@ -208,9 +220,11 @@ in
         sha256 = "sha256-5+sLftXvpOCHt7F/GReX969bf0QtEpDGbzohd3AF71c=";
       };
       name = "7z-x64.msi";
+      test = ''file_exists C "C:\\\\Program Files\\\\7-Zip\\\\7z\.exe"'';
     };
 
     # https://www.7-zip.org/
+    # For DOS versions: https://github.com/dajhorn/retro7zip
     operatingSystem.minimumVersion = "5.0";
 
   };
@@ -225,6 +239,8 @@ in
         archive = lib.virtioIso;
         paths = [ "guest-agent/qemu-ga-x86_64.msi" ];
       };
+
+      test = ''test_service_state "QEMU-GA" "RUNNING"'';
 
     };
 
@@ -276,6 +292,7 @@ in
     # https://github.com/utmapp/spice-nsis/blob/main/win-guest-tools.nsis
     operatingSystem.minimumVersion = "5.1";
   };
+
   win11debloat = {
     installer = {
       name = "Win11Debloat.zip";
@@ -284,10 +301,10 @@ in
         sha256 = "sha256-moOrldUaZMP55zhubxX2kP5KRuAzWGU/cXYSkp48OS8=";
       };
       ps1 = installerPath: ''
-        Extract-ZipToDesktop -zipFilePath "${installerPath}"
+        & "e:\tools\7-zip\7za.exe" x -y ${installerPath} -oWin11Debloat
         $desktop = [System.Environment]::GetFolderPath('Desktop')
         cd $desktop
-        cd .\Win11Debloat*
+        cd .\Win11Debloat
         cd .\Win11Debloat*
         # Do not create a restore point
         $filePath = "Win11Debloat.ps1"
@@ -298,6 +315,12 @@ in
         cd $desktop
         Remove-Item -Recurse .\Win11Debloat*
       '';
+
+      test = ''
+        test_log_contains oobeSystem.log "Win11Debloat Script"
+        test_log_contains oobeSystem.log "Script completed! Please check above for any errors."
+      '';
+
     };
     operatingSystem.minimumVersion = "10";
   };
