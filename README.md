@@ -7,8 +7,11 @@ Right now this flake builds the following Windows versions:
 
 | Version                    | Package           | Size | Time | Boot |
 | -------------------------- | ----------------- | ---- | ---- | ---- |
-| Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31'  | EFI  |
-| Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21'  | MBR  |
+| Windows 11 25H2 Pro        | `windows-11-25h2` | 8.1G | 31m  | EFI  |
+| Windows 11 24H2 Pro        | `windows-11-24h2` | 6.5G | 25m  | EFI  |
+| Windows 11 23H2 Enterprise | `windows-11-23h2` | 6.8G | 21m  | MBR  |
+| Windows 3.11               | `windows-3.11`    | 12M  | 150s | MBR  |
+| MS-DOS 6.22                | `dos-6.22`        | 3.9M | 44s  | MBR  |
 
 The goal is to support many versions of Windows, including historical ones.
 
@@ -19,14 +22,11 @@ Being the build deterministic, whatever is produced here, will be reproducible u
 To build the image:
 
 ```
-$ nix build .
-$ mkdir test-vm
-$ cd test-vm
-$ ../result/bin/prepare-windows-vm
-$ ls windows-vm
-image.qcow2 start stop mount windows.conf
-$ cd windows-vm
-$ ./start
+$ # The following command will install nix-portable, if necessary.
+$ ./nix build .#windows-11-25h2
+$ ./result/bin/prepare-vm
+$ cd vm
+$ ./vm start
 ```
 
 Other facts:
@@ -58,19 +58,20 @@ Other facts:
   I love QEMU, once you invoke it with the right incantations, it's the best. Thanks to [`quickemu`](https://github.com/quickemu-project/quickemu), the incantations are not that hard nowadays. Also, apparently the VirtualBox kernel driver is (used to be?) [quite bad](https://lkml.org/lkml/2011/10/6/317).
 * **Why not libvirt?**
   I love QEMU. Libvirt feels like extra layers of XML to get to the command line of QEMU I actually want to run.
+* **How do you pilot the installation?**
+  For recent systems, you can do 99% of things via the [answer file `autounattend.xml`](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/update-windows-settings-and-scripts-create-your-own-answer-file-sxs).
+  Due to some limitations, sometimes it's still necessary to simulate key inputs, using `vncdo key`.
+  For older systems (e.g., Windows 3.11), the installation is piloted via VNC key presses. However, almost no `sleep`s  are used: screenshots are taken via VNC (`vncdo snapshot`), OCR is performed on the screenshot with [Tesseract](https://github.com/tesseract-ocr/tesseract) and then we keep waiting until a certain text pops up.
+  `sleep`s are bad for reproducibility.
 
 ## TODO
 
 * [ ] Implement `nix run`.
-* [ ] Get rid of packer, we probably can do without at this point.
-* [ ] Get rid of `quickemu` in favor of manually providing QEMU command lines.
 * [ ] Disable more auto-updates, in particular Chrome and Edge.
-* [ ] Get Microsoft to make versioned releases of `SysinternalsSuite.zip`.
-* [ ] Figure out a way to test things.
-* [ ] Improve configurability of the software being preinstalled.
-* [ ] Add support for older Windows versions.
+* [ ] Add support for more Windows versions.
 * [ ] Disable firewall
 * [ ] Install SSH
+* [ ] Make images actually reproducible, byte-by-byte.
 
 ## Credits
 
@@ -79,3 +80,4 @@ The following projects have been useful:
 * [`proactivelabs/packer-windows`](https://github.com/proactivelabs/packer-windows/)
 * [`quickemu-project/quickemu`](https://github.com/quickemu-project/quickemu)
 * [Christoph Schneegans's `autounattend.xml` generator](https://schneegans.de/windows/unattend-generator/)
+* [`computernewb.com`'s Windows QEMU installation guides](https://computernewb.com/wiki/QEMU/Guests/Windows)

@@ -1,0 +1,244 @@
+{ pkgs, ... }:
+with pkgs.lib;
+{
+  options = {
+    systems = mkOption {
+      type = types.lazyAttrsOf (
+        types.submodule {
+          options = {
+            operatingSystem = mkOption {
+              type = types.submodule {
+                options = {
+
+                  name = mkOption {
+                    type = types.enum [
+                      "dos"
+                      "windows"
+                    ];
+                    description = "The name of the operating system.";
+                  };
+
+                  version = mkOption {
+                    type = types.strMatching "^([0-9]+)(\.([0-9]+)(\.([0-9]+))?)?$";
+                    description = "The version of the operating system.";
+                  };
+
+                };
+              };
+            };
+
+            vm = mkOption {
+              default = { };
+              type = types.submodule {
+                options = {
+
+                  network = mkOption {
+                    default = { };
+                    type = types.submodule {
+                      options = {
+
+                        model = mkOption {
+                          type = types.enum [
+                            "virtio-net"
+                            "rtl8139"
+                          ];
+                          default = "virtio-net";
+                          description = "The model for the network card to use.";
+                        };
+
+                        useIPv6 = mkOption {
+                          type = types.bool;
+                          default = true;
+                          description = "Whether to enable IPV6 on the network card or not.";
+                        };
+
+                      };
+                    };
+                  };
+
+                  useUSBKeyboard = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Whether to use a USB keyboard or not (-device usb-kbd).";
+                  };
+
+                  machine = mkOption {
+                    type = types.enum [
+                      "q35"
+                      "pc"
+                    ];
+                    default = "q35";
+                    description = "The QEMU machine to use.";
+                  };
+
+                  architecture = mkOption {
+                    type = types.enum [
+                      "x86_64"
+                      "i386"
+                    ];
+                    default = "x86_64";
+                    description = "The QEMU architecture to use.";
+                  };
+
+                  cpu = mkOption {
+                    type = types.enum [
+                      "host"
+                      "486"
+                    ];
+                    default = "host";
+                    description = "The QEMU -cpu option.";
+                  };
+
+                  maxCpus = mkOption {
+                    type = types.nullOr types.int;
+                    default = null;
+                    description = "Maximum number of CPUs allowed for this system.";
+                  };
+
+                  maxMemory = mkOption {
+                    type = types.nullOr types.int;
+                    default = null;
+                    description = "Maximum amount of memory (in MB) for this system.";
+                  };
+
+                  maxDiskSize = mkOption {
+                    type = types.nullOr types.int;
+                    default = null;
+                    description = "Maximum disk size (in MB) for this system.";
+                  };
+
+                  useEFI = mkOption {
+                    type = types.bool;
+                    default = false;
+                    description = "Whether to use EFI for this system.";
+                  };
+
+                  useVirtio = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Whether to use virtio for the disk.";
+                  };
+
+                };
+              };
+            };
+
+            installation = mkOption {
+              type = types.submodule {
+                options = {
+
+                  emitsSummary = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Whether this installation emits a summary, exfiltrated via SMB.";
+                  };
+
+                  iso = mkOption {
+                    type = types.nullOr types.path;
+                    default = null;
+                    description = "Path to the ISO image for installation.";
+                  };
+
+                  floppy = mkOption {
+                    type = types.nullOr types.path;
+                    default = null;
+                    description = "Path to the initial floppy disk image for installation.";
+                  };
+
+                  commands = mkOption {
+                    default = [ ];
+                    description = "A list of commands to pilot installation.";
+                    type = types.listOf (
+                      types.submodule {
+                        options = {
+                          type = mkOption {
+                            type = types.enum [
+                              "wait-for"
+                              "vncdo"
+                              "change-floppy"
+                              "sleep"
+                              "quit"
+                            ];
+                          };
+                          description = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "The description of this command.";
+                          };
+                          text = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "The text to wait for.";
+                          };
+                          arguments = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "vncdo arguments";
+                          };
+                          path = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "Path for the new floppy image.";
+                          };
+                          time = mkOption {
+                            type = types.str;
+                            default = "";
+                            example = "0.5";
+                            description = "Sleep time.";
+                          };
+                        };
+                      }
+                    );
+                  };
+
+                  autounattendXml = mkOption {
+                    default = null;
+                    type = types.nullOr (
+                      types.submodule {
+                        options = {
+                          imageName = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "The name of the product to install.";
+                          };
+
+                          diskConfiguration = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "The <DiskConfiguration> section.";
+                          };
+
+                          installPartition = mkOption {
+                            type = types.int;
+                            default = 0;
+                            description = "Index of the partition where to install Windows.";
+                          };
+
+                          productKey = mkOption {
+                            type = types.str;
+                            default = "";
+                            description = "The <ProductKey> section.";
+                          };
+
+                          servicesToDisable = mkOption {
+                            type = types.listOf types.str;
+                            default = [ ];
+                            description = "A list of services to disable very early on.";
+                          };
+
+                        };
+                      }
+                    );
+                  };
+
+                };
+              };
+            };
+
+          };
+        }
+      );
+    };
+
+  };
+}

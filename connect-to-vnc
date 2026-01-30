@@ -1,6 +1,6 @@
 #!/bin/sh
 
-QEMU_PID=$(pgrep -f qemu-windows-install)
+QEMU_PID=$(pgrep -n -f qemu-windows-install)
 sudo \
      nsenter --target "$QEMU_PID" --net \
      sudo -u $USER \
