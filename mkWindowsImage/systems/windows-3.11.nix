@@ -22,6 +22,13 @@
           arguments = "key enter";
         }
       ];
+      insertRtl8139Floppy = {
+        type = "change-floppy";
+        path = "${pkgs.fetchurl {
+          url = "https://computernewb.com/QEMU/rtl8139.img";
+          sha256 = "sha256-CJbl9KnrjzX4AqbXEya7S7ssKibiURXMdRjDpay7c/U=";
+        }}";
+      };
     in
     config.systems."dos-6.22"
     // {
@@ -143,13 +150,7 @@
               type = "wait-for";
               text = "Browse";
             }
-            {
-              type = "change-floppy";
-              path = "${pkgs.fetchurl {
-                url = "https://computernewb.com/QEMU/rtl8139.img";
-                sha256 = "sha256-CJbl9KnrjzX4AqbXEya7S7ssKibiURXMdRjDpay7c/U=";
-              }}";
-            }
+            insertRtl8139Floppy
             {
               description = "Confirm";
               type = "vncdo";
@@ -192,13 +193,7 @@
               type = "wait-for";
               text = "RTSND.386";
             }
-            {
-              type = "change-floppy";
-              path = "${pkgs.fetchurl {
-                url = "https://computernewb.com/QEMU/rtl8139.img";
-                sha256 = "sha256-CJbl9KnrjzX4AqbXEya7S7ssKibiURXMdRjDpay7c/U=";
-              }}";
-            }
+            insertRtl8139Floppy
             {
               description = "Confirm";
               type = "vncdo";
@@ -237,13 +232,7 @@
               type = "wait-for";
               text = "RTS.D";
             }
-            {
-              type = "change-floppy";
-              path = "${pkgs.fetchurl {
-                url = "https://computernewb.com/QEMU/rtl8139.img";
-                sha256 = "sha256-CJbl9KnrjzX4AqbXEya7S7ssKibiURXMdRjDpay7c/U=";
-              }}";
-            }
+            insertRtl8139Floppy
             {
               description = "Confirm";
               type = "vncdo";

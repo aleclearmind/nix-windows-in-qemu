@@ -35,7 +35,7 @@ in
       name = "spice-guest-tools.exe";
       arguments = "/S";
 
-      test = ''test_service_available vdservice'';
+      test = "test_service_available vdservice";
     };
 
     # https://github.com/utmapp/spice-nsis/blob/main/win-guest-tools.nsis

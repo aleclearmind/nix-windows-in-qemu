@@ -967,7 +967,7 @@ let
                 -global kvm-pit.lost_tick_policy=discard \
                 -global ICH9-LPC.disable_s3=1 \
                 -cpu host,+hypervisor,+invtsc,l3-cache=on,migratable=no,hv_passthrough \
-                ${lib.optionalString configuration.vm.useVirtio ''-device virtio-balloon''} \
+                ${lib.optionalString configuration.vm.useVirtio "-device virtio-balloon"} \
                 -rtc base=localtime,clock=host,driftfix=slew \
                 -cpu ${configuration.vm.cpu} \
                 -smp ${builtins.toString (min cpus configuration.vm.maxCpus)} \
@@ -975,7 +975,7 @@ let
                 -monitor unix:"$(realpath --relative-to="$PWD" "$WORKING_DIRECTORY/qemu-monitor.socket")",server,nowait \
                 -pidfile "$WORKING_DIRECTORY/qemu.pid" \
                 \
-                -netdev "user,id=user.0${lib.optionalString needsSamba '',guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 $SAMBA_PORT1,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 $SAMBA_PORT2''}${lib.optionalString configuration.vm.network.useIPv6 '',ipv6=off''}" \
+                -netdev "user,id=user.0${lib.optionalString needsSamba ",guestfwd=tcp:10.0.2.4:445-cmd:nc 127.0.0.1 $SAMBA_PORT1,guestfwd=tcp:10.0.2.4:139-cmd:nc 127.0.0.1 $SAMBA_PORT2"}${lib.optionalString configuration.vm.network.useIPv6 ",ipv6=off"}" \
                 -device ${configuration.vm.network.model},netdev=user.0 \
                 ${lib.optionalString useSpice ''
                   -vga none \
@@ -1380,7 +1380,7 @@ let
 
               mkdir extra
               pushd extra > /dev/null
-              ${handleInstallers (package: ''cp -a ${package.installer.package} ${package.installer.name}'')}
+              ${handleInstallers (package: "cp -a ${package.installer.package} ${package.installer.name}")}
               popd > /dev/null
 
               ${lib.optionalString hasAutounattendXml ''
