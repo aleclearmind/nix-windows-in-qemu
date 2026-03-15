@@ -24,27 +24,9 @@ let
           type = "vncdo";
           arguments = "key enter";
         }
-        {
-          type = "wait-for";
-          text = "Select language settings";
-        }
-        {
-          description = "Accept language and locale";
-          type = "vncdo";
-          arguments = "key alt-n";
-        }
-        {
-          type = "wait-for";
-          text = "Select keyboard settings";
-        }
-        {
-          description = "Accept keyboard layout";
-          type = "vncdo";
-          arguments = "key alt-n";
-        }
       ];
       autounattendXml = {
-        imageName = "Windows 11 Pro";
+        imageName = "Windows 11 Enterprise Evaluation";
         diskConfiguration = ''
           <DiskConfiguration>
             <Disk wcm:action="add">
@@ -112,8 +94,10 @@ let
         installPartition = 4;
         productKey = ''
           <ProductKey>
-            <Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key>
-            <WillShowUI>Never</WillShowUI>
+            <!-- If you *do* set a key, ensure it's for the right platform: -->
+            <!-- otherwise you will get the dreaded "No images are available" -->
+            <!-- which actually means "No images are available for this ProductKey! -->
+            <!-- <Key>SET_KEY_HERE</Key> -->
           </ProductKey>
         '';
         servicesToDisable = [
@@ -135,19 +119,15 @@ let
 in
 {
   systems."windows-11-24h2" = windows11Post24h2 26100 (
-    common.fetchWindowsIso {
-      fileName = "Win11_24H2_EnglishInternational_x64.iso";
-      hash = "sha256-1aTJfD6DXEOxuaMZMzJ8ABdmzjFGCLqRLy//yHYEQwk=";
-      productId = 3113;
-      backupUrl = "https://archive.org/download/Win11_24H2_EnglishInternational_x64/Win11_24H2_EnglishInternational_x64.iso";
+    pkgs.fetchurl {
+      url = "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/26100.1742.240906-0331.ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso";
+      sha256 = "sha256-dVqQ1D6CanS54ZMqNHiLiY4CgnJDm3d+VZPe6NU2Iq4=";
     }
   );
   systems."windows-11-25h2" = windows11Post24h2 26200 (
-    common.fetchWindowsIso {
-      fileName = "Win11_25H2_EnglishInternational_x64.iso";
-      hash = "sha256-uq62yQ3VFkgVS2TEDJ4MFNk6Qn9hGhu0nIB3+i/3M2Q=";
-      productId = 3262;
-      backupUrl = "https://archive.org/download/win-11-25-h-2-english-international-x-64/Win11_25H2_EnglishInternational_x64.iso";
+    pkgs.fetchurl {
+      url = "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/26200.6584.250915-1905.25h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso";
+      sha256 = "sha256-phreq4le9aTbQ24KcBHJKi/xe7A1f1ixO7xAYuU157k=";
     }
   );
 }
