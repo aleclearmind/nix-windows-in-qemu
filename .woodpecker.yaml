@@ -1,0 +1,38 @@
+when:
+  branch: master
+  event: push
+
+steps:
+  - name: Build and push image
+    image: nixos/nix:latest
+
+    environment:
+      ATTIC_TOKEN:
+        from_secret: ATTIC_TOKEN
+
+    commands:
+      - echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+      - nix profile add nixpkgs/nixos-25.11#{jq,attic-client}
+      - |
+        set -euo pipefail
+        set -x
+
+        function log() {
+          echo "$1" > /dev/stderr
+        }
+
+        log "Logging into nix cache"
+        ATTIC_ENDPOINT=clearmindme
+        ATTIC_CACHE="$ATTIC_ENDPOINT:nix-windows-in-qemu"
+        attic login "$ATTIC_ENDPOINT" https://clearmind.me/attic/ "$ATTIC_TOKEN"
+        attic use "$ATTIC_CACHE"
+
+        for PACKAGE in $(nix flake show --json | jq -r '.packages["x86_64-linux"] | keys | .[]'); do
+
+          log "Building $PACKAGE"
+          nix build .#"\"$PACKAGE\"" -L -v --max-silent-time 300
+
+          log "Pushing $PACKAGE to the nix cache"
+          attic push "$ATTIC_CACHE" result
+
+        done
